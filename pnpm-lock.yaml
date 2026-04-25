@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@cloudflare/workerd-linux-64':
-        specifier: ^1.20260425.1
-        version: 1.20260425.1
       '@opennextjs/cloudflare':
         specifier: ^1.11.0
         version: 1.19.4(next@15.4.11(@babel/core@7.29.0)(@playwright/test@1.58.2)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4))(wrangler@4.61.1)
@@ -496,12 +493,6 @@ packages:
 
   '@cloudflare/workerd-linux-64@1.20260128.0':
     resolution: {integrity: sha512-RiaR+Qugof/c6oI5SagD2J5wJmIfI8wQWaV2Y9905Raj6sAYOFaEKfzkKnoLLLNYb4NlXicBrffJi1j7R/ypUA==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [linux]
-
-  '@cloudflare/workerd-linux-64@1.20260425.1':
-    resolution: {integrity: sha512-dK091aX+tedBp0EAt/q3DlR5flpOu9Y9rFxdG58HDxvJ694VAEnGJXI8Y5a3PpwcKW9N2HCfoyWrmxvudcJukw==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [linux]
@@ -6423,8 +6414,6 @@ snapshots:
 
   '@cloudflare/workerd-linux-64@1.20260128.0':
     optional: true
-
-  '@cloudflare/workerd-linux-64@1.20260425.1': {}
 
   '@cloudflare/workerd-linux-arm64@1.20260128.0':
     optional: true
