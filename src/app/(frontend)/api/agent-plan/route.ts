@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden: insufficient role' }, { status: 403 })
     }
 
-    const body = await req.json()
+    const body = (await req.json()) as { codingRequestId?: number }
     const { codingRequestId } = body
 
     if (!codingRequestId) {
@@ -44,10 +44,11 @@ export async function POST(req: NextRequest) {
         reviewer: { id: result.runs.reviewer.id, status: 'completed' },
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Internal server error'
     console.error('Agent plan generation failed:', error)
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: message },
       { status: 500 },
     )
   }

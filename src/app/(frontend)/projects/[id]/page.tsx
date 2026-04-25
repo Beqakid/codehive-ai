@@ -2,11 +2,38 @@ import { headers as getHeaders } from 'next/headers'
 import { getPayload } from 'payload'
 import { redirect, notFound } from 'next/navigation'
 import React from 'react'
+import Link from 'next/link'
 import config from '@/payload.config'
 import '../../styles.css'
 
 export const metadata = {
   title: 'Project Detail — CodeHive AI',
+}
+
+interface ProjectDoc {
+  id: number
+  name: string
+  description?: string
+  status: string
+  repoUrl?: string
+  owner?: { email: string } | number
+  createdAt: string
+}
+
+interface CodingRequestDoc {
+  id: number
+  title: string
+  description?: string
+  status: string
+  priority: string
+}
+
+interface AgentPlanDoc {
+  id: number
+  codingRequest?: { title: string } | number
+  reviewFeedback?: { overallScore?: number }
+  status: string
+  createdAt: string
 }
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,18 +47,19 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     redirect('/admin')
   }
 
-  let project: any
+  let project: ProjectDoc
   try {
-    project = await payload.findByID({
+    const result = await payload.findByID({
       collection: 'projects',
       id: parseInt(id, 10),
       depth: 1,
     })
+    project = result as unknown as ProjectDoc
   } catch {
     notFound()
   }
 
-  if (!project) {
+  if (!project!) {
     notFound()
   }
 
@@ -43,8 +71,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   })
 
   // Find agent plans for this project's coding requests
-  const crIds = codingRequests.docs.map((cr: any) => cr.id)
-  let agentPlans: any = { docs: [], totalDocs: 0 }
+  const crIds = codingRequests.docs.map((cr) => (cr as unknown as CodingRequestDoc).id)
+  let agentPlans: { docs: unknown[]; totalDocs: number } = { docs: [], totalDocs: 0 }
   if (crIds.length > 0) {
     agentPlans = await payload.find({
       collection: 'agent-plans',
@@ -65,9 +93,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       {/* Header */}
       <div style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.75rem' }}>
-          <a href="/dashboard" style={linkStyle}>Dashboard</a>
+          <Link href="/dashboard" style={linkStyle}>Dashboard</Link>
           <span style={{ color: '#999' }}>/</span>
-          <a href="/projects" style={linkStyle}>Projects</a>
+          <Link href="/projects" style={linkStyle}>Projects</Link>
           <span style={{ color: '#999' }}>/</span>
           <span style={{ color: '#333' }}>{project.name}</span>
         </div>
@@ -102,25 +130,28 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         <div style={cardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Coding Requests ({codingRequests.totalDocs})</h2>
-            <a href={`/admin/collections/coding-requests/create`} style={smallBtnStyle}>+ New</a>
+            <Link href="/admin/collections/coding-requests/create" style={smallBtnStyle}>+ New</Link>
           </div>
           {codingRequests.docs.length === 0 ? (
             <p style={{ color: '#999', margin: 0 }}>No coding requests yet.</p>
           ) : (
-            codingRequests.docs.map((cr: any) => (
-              <div key={cr.id} style={listItemStyle}>
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: '0.95rem' }}>{cr.title}</div>
-                  <div style={{ fontSize: '0.8rem', color: '#999', marginTop: '0.15rem' }}>
-                    {cr.description?.substring(0, 80)}{cr.description?.length > 80 ? '...' : ''}
+            codingRequests.docs.map((c) => {
+              const cr = c as unknown as CodingRequestDoc
+              return (
+                <div key={cr.id} style={listItemStyle}>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: '0.95rem' }}>{cr.title}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#999', marginTop: '0.15rem' }}>
+                      {cr.description?.substring(0, 80)}{(cr.description?.length ?? 0) > 80 ? '...' : ''}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
+                    <StatusBadge status={cr.status} />
+                    <PriorityBadge priority={cr.priority} />
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
-                  <StatusBadge status={cr.status} />
-                  <PriorityBadge priority={cr.priority} />
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
 
@@ -130,11 +161,13 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           {agentPlans.docs.length === 0 ? (
             <p style={{ color: '#999', margin: 0 }}>No agent plans generated yet. Use the API to trigger the agent pipeline.</p>
           ) : (
-            agentPlans.docs.map((plan: any) => {
+            agentPlans.docs.map((p) => {
+              const plan = p as unknown as AgentPlanDoc
+              const crRef = plan.codingRequest
               const crTitle =
-                typeof plan.codingRequest === 'object' && plan.codingRequest !== null
-                  ? plan.codingRequest.title
-                  : `Request #${plan.codingRequest}`
+                typeof crRef === 'object' && crRef !== null && 'title' in crRef
+                  ? crRef.title
+                  : `Request #${String(crRef)}`
               const reviewScore = plan.reviewFeedback?.overallScore ?? '—'
               return (
                 <div key={plan.id} style={listItemStyle}>

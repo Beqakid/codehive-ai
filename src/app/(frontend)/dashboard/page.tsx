@@ -2,11 +2,22 @@ import { headers as getHeaders } from 'next/headers'
 import { getPayload } from 'payload'
 import { redirect } from 'next/navigation'
 import React from 'react'
+import Link from 'next/link'
 import config from '@/payload.config'
 import '../styles.css'
 
 export const metadata = {
   title: 'Dashboard — CodeHive AI',
+}
+
+interface DocWithStatus {
+  id: number
+  status?: string
+  title?: string
+  name?: string
+  priority?: string
+  codingRequest?: Record<string, unknown> | number
+  createdAt: string
 }
 
 export default async function DashboardPage() {
@@ -25,7 +36,7 @@ export default async function DashboardPage() {
     payload.find({ collection: 'agent-plans', limit: 5, sort: '-createdAt', depth: 1 }),
   ])
 
-  const statusCounts = {
+  const statusCounts: Record<string, number> = {
     draft: 0,
     submitted: 0,
     planning: 0,
@@ -34,8 +45,9 @@ export default async function DashboardPage() {
     completed: 0,
     rejected: 0,
   }
-  codingRequests.docs.forEach((req: any) => {
-    const s = req.status as keyof typeof statusCounts
+  codingRequests.docs.forEach((req) => {
+    const doc = req as unknown as DocWithStatus
+    const s = doc.status as string
     if (s in statusCounts) statusCounts[s]++
   })
 
@@ -47,8 +59,8 @@ export default async function DashboardPage() {
           <p style={{ margin: '0.25rem 0 0', color: '#666' }}>Welcome back, {user.email}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <a href="/projects" style={linkBtnStyle}>Projects</a>
-          <a href="/admin" style={{ ...linkBtnStyle, background: '#333' }}>Admin Panel</a>
+          <Link href="/projects" style={linkBtnStyle}>Projects</Link>
+          <Link href="/admin" style={{ ...linkBtnStyle, background: '#333' }}>Admin Panel</Link>
         </div>
       </div>
 
@@ -69,12 +81,15 @@ export default async function DashboardPage() {
           {projects.docs.length === 0 ? (
             <p style={{ color: '#999' }}>No projects yet. Create one in the admin panel.</p>
           ) : (
-            projects.docs.map((project: any) => (
-              <a key={project.id} href={`/projects/${project.id}`} style={listItemStyle}>
-                <span style={{ fontWeight: 500 }}>{project.name}</span>
-                <StatusBadge status={project.status} />
-              </a>
-            ))
+            projects.docs.map((p) => {
+              const project = p as unknown as DocWithStatus
+              return (
+                <Link key={project.id} href={`/projects/${project.id}`} style={listItemStyle}>
+                  <span style={{ fontWeight: 500 }}>{project.name}</span>
+                  <StatusBadge status={project.status ?? 'draft'} />
+                </Link>
+              )
+            })
           )}
         </div>
 
@@ -84,15 +99,18 @@ export default async function DashboardPage() {
           {codingRequests.docs.length === 0 ? (
             <p style={{ color: '#999' }}>No coding requests yet.</p>
           ) : (
-            codingRequests.docs.map((cr: any) => (
-              <div key={cr.id} style={listItemStyle}>
-                <span style={{ fontWeight: 500 }}>{cr.title}</span>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <PriorityBadge priority={cr.priority} />
-                  <StatusBadge status={cr.status} />
+            codingRequests.docs.map((c) => {
+              const cr = c as unknown as DocWithStatus
+              return (
+                <div key={cr.id} style={listItemStyle}>
+                  <span style={{ fontWeight: 500 }}>{cr.title}</span>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <PriorityBadge priority={cr.priority ?? 'medium'} />
+                    <StatusBadge status={cr.status ?? 'draft'} />
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </div>
@@ -103,16 +121,18 @@ export default async function DashboardPage() {
         {agentPlans.docs.length === 0 ? (
           <p style={{ color: '#999' }}>No agent plans generated yet. Submit a coding request and trigger the agent pipeline.</p>
         ) : (
-          agentPlans.docs.map((plan: any) => {
+          agentPlans.docs.map((p) => {
+            const plan = p as unknown as DocWithStatus
+            const crRef = plan.codingRequest
             const crTitle =
-              typeof plan.codingRequest === 'object' && plan.codingRequest !== null
-                ? plan.codingRequest.title
-                : `Request #${plan.codingRequest}`
+              typeof crRef === 'object' && crRef !== null && 'title' in crRef
+                ? String(crRef.title)
+                : `Request #${String(crRef)}`
             return (
               <div key={plan.id} style={listItemStyle}>
                 <span style={{ fontWeight: 500 }}>{crTitle}</span>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <StatusBadge status={plan.status} />
+                  <StatusBadge status={plan.status ?? 'draft'} />
                   <span style={{ fontSize: '0.75rem', color: '#999' }}>
                     {new Date(plan.createdAt).toLocaleDateString()}
                   </span>

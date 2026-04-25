@@ -15,12 +15,17 @@ import { runProductAgent, type ProductSpec } from './productAgent'
 import { runArchitectAgent, type ArchitectureDesign } from './architectAgent'
 import { runReviewerAgent, type ReviewFeedback } from './reviewerAgent'
 
+interface AgentRunRecord {
+  id: number
+  [key: string]: unknown
+}
+
 interface OrchestratorResult {
-  agentPlan: any
+  agentPlan: Record<string, unknown>
   runs: {
-    product: any
-    architect: any
-    reviewer: any
+    product: AgentRunRecord
+    architect: AgentRunRecord
+    reviewer: AgentRunRecord
   }
 }
 
@@ -28,9 +33,9 @@ async function createAgentRun(
   payload: Payload,
   agentName: 'product' | 'architect' | 'reviewer' | 'orchestrator',
   codingRequestId: number,
-  input: any,
-) {
-  return payload.create({
+  input: Record<string, unknown>,
+): Promise<AgentRunRecord> {
+  const run = await payload.create({
     collection: 'agent-runs',
     data: {
       agentName,
@@ -39,12 +44,13 @@ async function createAgentRun(
       input,
     },
   })
+  return run as unknown as AgentRunRecord
 }
 
 async function completeAgentRun(
   payload: Payload,
   runId: number,
-  output: any,
+  output: Record<string, unknown>,
   startTime: number,
 ) {
   return payload.update({
@@ -97,9 +103,10 @@ export async function runOrchestrator(
     data: { status: 'planning' },
   })
 
+  const projectObj = codingRequest.project
   const projectName =
-    typeof codingRequest.project === 'object' && codingRequest.project !== null
-      ? (codingRequest.project as any).name ?? 'Unknown Project'
+    typeof projectObj === 'object' && projectObj !== null && 'name' in projectObj
+      ? String((projectObj as Record<string, unknown>).name ?? 'Unknown Project')
       : 'Unknown Project'
 
   // 2. Run Product Agent
@@ -115,7 +122,7 @@ export async function runOrchestrator(
       description: codingRequest.description,
       projectName,
     })
-    await completeAgentRun(payload, productRun.id, productSpec, productStart)
+    await completeAgentRun(payload, productRun.id, productSpec as unknown as Record<string, unknown>, productStart)
   } catch (err) {
     await failAgentRun(payload, productRun.id, String(err), productStart)
     throw new Error(`Product Agent failed: ${err}`)
@@ -125,7 +132,7 @@ export async function runOrchestrator(
   let architectureDesign: ArchitectureDesign
   const architectRun = await createAgentRun(payload, 'architect', codingRequestId, {
     title: codingRequest.title,
-    productSpec,
+    productSpec: productSpec as unknown as Record<string, unknown>,
   })
   const architectStart = Date.now()
   try {
@@ -134,7 +141,7 @@ export async function runOrchestrator(
       description: codingRequest.description,
       productSpec,
     })
-    await completeAgentRun(payload, architectRun.id, architectureDesign, architectStart)
+    await completeAgentRun(payload, architectRun.id, architectureDesign as unknown as Record<string, unknown>, architectStart)
   } catch (err) {
     await failAgentRun(payload, architectRun.id, String(err), architectStart)
     throw new Error(`Architect Agent failed: ${err}`)
@@ -144,8 +151,8 @@ export async function runOrchestrator(
   let reviewFeedback: ReviewFeedback
   const reviewerRun = await createAgentRun(payload, 'reviewer', codingRequestId, {
     title: codingRequest.title,
-    productSpec,
-    architectureDesign,
+    productSpec: productSpec as unknown as Record<string, unknown>,
+    architectureDesign: architectureDesign as unknown as Record<string, unknown>,
   })
   const reviewerStart = Date.now()
   try {
@@ -154,31 +161,29 @@ export async function runOrchestrator(
       productSpec,
       architectureDesign,
     })
-    await completeAgentRun(payload, reviewerRun.id, reviewFeedback, reviewerStart)
+    await completeAgentRun(payload, reviewerRun.id, reviewFeedback as unknown as Record<string, unknown>, reviewerStart)
   } catch (err) {
     await failAgentRun(payload, reviewerRun.id, String(err), reviewerStart)
     throw new Error(`Reviewer Agent failed: ${err}`)
   }
 
   // 5. Create the consolidated AgentPlan
-  const finalPlan = {
-    title: codingRequest.title,
-    project: projectName,
-    generatedAt: new Date().toISOString(),
-    productSpec,
-    architectureDesign,
-    reviewFeedback,
-    approved: reviewFeedback.verdict === 'approved',
-  }
-
   const agentPlan = await payload.create({
     collection: 'agent-plans',
     data: {
       codingRequest: codingRequestId,
-      productSpec,
-      architectureDesign,
-      reviewFeedback,
-      finalPlan,
+      productSpec: productSpec as unknown as Record<string, unknown>,
+      architectureDesign: architectureDesign as unknown as Record<string, unknown>,
+      reviewFeedback: reviewFeedback as unknown as Record<string, unknown>,
+      finalPlan: {
+        title: codingRequest.title,
+        project: projectName,
+        generatedAt: new Date().toISOString(),
+        productSpec,
+        architectureDesign,
+        reviewFeedback,
+        approved: reviewFeedback.verdict === 'approved',
+      },
       status: reviewFeedback.verdict === 'approved' ? 'approved' : 'draft',
     },
   })
@@ -192,7 +197,7 @@ export async function runOrchestrator(
   })
 
   return {
-    agentPlan,
+    agentPlan: agentPlan as unknown as Record<string, unknown>,
     runs: {
       product: productRun,
       architect: architectRun,

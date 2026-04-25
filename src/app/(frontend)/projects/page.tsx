@@ -2,11 +2,22 @@ import { headers as getHeaders } from 'next/headers'
 import { getPayload } from 'payload'
 import { redirect } from 'next/navigation'
 import React from 'react'
+import Link from 'next/link'
 import config from '@/payload.config'
 import '../styles.css'
 
 export const metadata = {
   title: 'Projects — CodeHive AI',
+}
+
+interface ProjectDoc {
+  id: number
+  name: string
+  description?: string
+  status: string
+  repoUrl?: string
+  owner?: { email: string } | number
+  createdAt: string
 }
 
 export default async function ProjectsPage() {
@@ -34,27 +45,28 @@ export default async function ProjectsPage() {
           <p style={{ margin: '0.25rem 0 0', color: '#666' }}>{projects.totalDocs} project{projects.totalDocs !== 1 ? 's' : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <a href="/dashboard" style={linkBtnStyle}>Dashboard</a>
-          <a href="/admin/collections/projects/create" style={{ ...linkBtnStyle, background: '#10b981' }}>+ New Project</a>
+          <Link href="/dashboard" style={linkBtnStyle}>Dashboard</Link>
+          <Link href="/admin/collections/projects/create" style={{ ...linkBtnStyle, background: '#10b981' }}>+ New Project</Link>
         </div>
       </div>
 
       {projects.docs.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
           <p style={{ fontSize: '1.1rem', color: '#666', margin: 0 }}>No projects yet. Create your first one!</p>
-          <a href="/admin/collections/projects/create" style={{ ...linkBtnStyle, display: 'inline-block', marginTop: '1rem', background: '#10b981' }}>
+          <Link href="/admin/collections/projects/create" style={{ ...linkBtnStyle, display: 'inline-block', marginTop: '1rem', background: '#10b981' }}>
             + Create Project
-          </a>
+          </Link>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1rem' }}>
-          {projects.docs.map((project: any) => {
+          {projects.docs.map((p) => {
+            const project = p as unknown as ProjectDoc
             const ownerEmail =
               typeof project.owner === 'object' && project.owner !== null
                 ? project.owner.email
                 : 'Unknown'
             return (
-              <a
+              <Link
                 key={project.id}
                 href={`/projects/${project.id}`}
                 style={{
@@ -98,7 +110,7 @@ export default async function ProjectsPage() {
                     🔗 {project.repoUrl}
                   </div>
                 )}
-              </a>
+              </Link>
             )
           })}
         </div>

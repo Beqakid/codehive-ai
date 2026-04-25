@@ -4,20 +4,26 @@ export type Role = 'super_admin' | 'admin' | 'developer' | 'viewer'
 
 export const ROLES: Role[] = ['super_admin', 'admin', 'developer', 'viewer']
 
+interface UserWithRole {
+  role?: string
+}
+
 /** Type guard: extract role from a request's user */
-const getUserRole = (user: any): Role | undefined => user?.role as Role | undefined
+const getUserRole = (user: UserWithRole | null | undefined): Role | undefined =>
+  user?.role as Role | undefined
 
 /** Check helpers */
-export const isSuperAdmin = (user: any): boolean => getUserRole(user) === 'super_admin'
-export const isAdminOrAbove = (user: any): boolean => {
+export const isSuperAdmin = (user: UserWithRole | null | undefined): boolean =>
+  getUserRole(user) === 'super_admin'
+export const isAdminOrAbove = (user: UserWithRole | null | undefined): boolean => {
   const role = getUserRole(user)
   return role === 'super_admin' || role === 'admin'
 }
-export const isDeveloperOrAbove = (user: any): boolean => {
+export const isDeveloperOrAbove = (user: UserWithRole | null | undefined): boolean => {
   const role = getUserRole(user)
   return role === 'super_admin' || role === 'admin' || role === 'developer'
 }
-export const isViewerOrAbove = (user: any): boolean => {
+export const isViewerOrAbove = (user: UserWithRole | null | undefined): boolean => {
   const role = getUserRole(user)
   return role !== undefined
 }

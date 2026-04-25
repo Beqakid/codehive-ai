@@ -41,7 +41,7 @@ const cloudflareLogger = {
   error: createLog('error', console.error),
   fatal: createLog('fatal', console.error),
   silent: () => {},
-} as any // Use PayloadLogger type when it's exported
+} as unknown as Parameters<typeof buildConfig>[0]['logger']
 
 const cloudflare =
   isCLI || !isProduction
