@@ -1,6 +1,6 @@
 /**
  * Architect Agent — Phase 2
- * Calls Anthropic Claude with streaming to produce an architecture design.
+ * Calls OpenAI GPT-4o-mini with streaming to produce an architecture design.
  * Uses native fetch — no additional packages required.
  */
 
@@ -39,8 +39,8 @@ export async function runArchitectAgent(
   input: ArchitectAgentInput,
   onChunk: (text: string) => void,
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured')
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
 
   const repoSection = input.repoContext
     ? `\n## Repository: ${input.repoContext.owner}/${input.repoContext.repo}\n${input.repoContext.description}\n\n### File Structure\n${input.repoContext.structure}\n\n${input.repoContext.files.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n')}`
@@ -64,31 +64,32 @@ Design the technical architecture with:
 5. **File Structure** — specific files to create or modify
 6. **Implementation Steps** — ordered action plan`
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'gpt-4o-mini',
       max_tokens: 1500,
       stream: true,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
     }),
   })
 
   if (!response.ok || !response.body) {
     const err = await response.text()
-    throw new Error(`Anthropic API error ${response.status}: ${err}`)
+    throw new Error(`OpenAI API error ${response.status}: ${err}`)
   }
 
-  return parseAnthropicStream(response.body, onChunk)
+  return parseOpenAIStream(response.body, onChunk)
 }
 
-async function parseAnthropicStream(
+async function parseOpenAIStream(
   body: ReadableStream<Uint8Array>,
   onChunk: (text: string) => void,
 ): Promise<string> {
@@ -108,17 +109,15 @@ async function parseAnthropicStream(
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue
       const data = line.slice(6).trim()
+      if (data === '[DONE]') continue
       try {
         const json = JSON.parse(data) as {
-          type?: string
-          delta?: { type?: string; text?: string }
+          choices?: Array<{ delta?: { content?: string } }>
         }
-        if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
-          const text = json.delta.text || ''
-          if (text) {
-            fullContent += text
-            onChunk(text)
-          }
+        const text = json.choices?.[0]?.delta?.content || ''
+        if (text) {
+          fullContent += text
+          onChunk(text)
         }
       } catch {
         // skip malformed chunks
