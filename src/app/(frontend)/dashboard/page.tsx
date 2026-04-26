@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import React from 'react'
 import Link from 'next/link'
 import config from '@/payload.config'
+import { AgentRunner } from '@/components/AgentRunner'
 import '../styles.css'
 
 export const metadata = {
@@ -16,6 +17,7 @@ interface DocWithStatus {
   title?: string
   name?: string
   priority?: string
+  description?: string
   codingRequest?: Record<string, unknown> | number
   createdAt: string
 }
@@ -52,20 +54,46 @@ export default async function DashboardPage() {
   })
 
   return (
-    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', maxWidth: 1200, margin: '0 auto', padding: '2rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+    <div
+      style={{
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        maxWidth: 1200,
+        margin: '0 auto',
+        padding: '2rem',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '2rem',
+        }}
+      >
         <div>
           <h1 style={{ margin: 0, fontSize: '1.75rem' }}>🐝 CodeHive AI Dashboard</h1>
           <p style={{ margin: '0.25rem 0 0', color: '#666' }}>Welcome back, {user.email}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <Link href="/projects" style={linkBtnStyle}>Projects</Link>
-          <Link href="/admin" style={{ ...linkBtnStyle, background: '#333' }}>Admin Panel</Link>
+          <Link href="/projects" style={linkBtnStyle}>
+            Projects
+          </Link>
+          <Link href="/admin" style={{ ...linkBtnStyle, background: '#333' }}>
+            Admin Panel
+          </Link>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '1rem',
+          marginBottom: '2rem',
+        }}
+      >
         <StatCard label="Projects" value={projects.totalDocs} color="#3b82f6" />
         <StatCard label="Coding Requests" value={codingRequests.totalDocs} color="#8b5cf6" />
         <StatCard label="Agent Plans" value={agentPlans.totalDocs} color="#10b981" />
@@ -84,7 +112,11 @@ export default async function DashboardPage() {
             projects.docs.map((p) => {
               const project = p as unknown as DocWithStatus
               return (
-                <Link key={project.id} href={`/projects/${project.id}`} style={listItemStyle}>
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  style={listItemStyle}
+                >
                   <span style={{ fontWeight: 500 }}>{project.name}</span>
                   <StatusBadge status={project.status ?? 'draft'} />
                 </Link>
@@ -102,12 +134,25 @@ export default async function DashboardPage() {
             codingRequests.docs.map((c) => {
               const cr = c as unknown as DocWithStatus
               return (
-                <div key={cr.id} style={listItemStyle}>
-                  <span style={{ fontWeight: 500 }}>{cr.title}</span>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <PriorityBadge priority={cr.priority ?? 'medium'} />
-                    <StatusBadge status={cr.status ?? 'draft'} />
+                <div
+                  key={cr.id}
+                  style={{ ...listItemStyle, flexDirection: 'column', alignItems: 'flex-start' }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      width: '100%',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={{ fontWeight: 500 }}>{cr.title}</span>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <PriorityBadge priority={cr.priority ?? 'medium'} />
+                      <StatusBadge status={cr.status ?? 'draft'} />
+                    </div>
                   </div>
+                  <AgentRunner codingRequestId={cr.id} title={cr.title ?? ''} />
                 </div>
               )
             })
@@ -119,7 +164,10 @@ export default async function DashboardPage() {
       <div style={{ ...cardStyle, marginTop: '1.5rem' }}>
         <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem' }}>Latest Agent Plans</h2>
         {agentPlans.docs.length === 0 ? (
-          <p style={{ color: '#999' }}>No agent plans generated yet. Submit a coding request and trigger the agent pipeline.</p>
+          <p style={{ color: '#999' }}>
+            No agent plans generated yet. Click &ldquo;🤖 Run AI Agents&rdquo; on a coding request
+            above.
+          </p>
         ) : (
           agentPlans.docs.map((p) => {
             const plan = p as unknown as DocWithStatus
@@ -148,7 +196,15 @@ export default async function DashboardPage() {
 
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '1.25rem', borderTop: `3px solid ${color}` }}>
+    <div
+      style={{
+        background: '#fff',
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        padding: '1.25rem',
+        borderTop: `3px solid ${color}`,
+      }}
+    >
       <div style={{ fontSize: '1.75rem', fontWeight: 700, color }}>{value}</div>
       <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.25rem' }}>{label}</div>
     </div>
@@ -171,7 +227,17 @@ function StatusBadge({ status }: { status: string }) {
   }
   const c = colors[status] || colors.draft
   return (
-    <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 9999, background: c.bg, color: c.text, fontWeight: 600, textTransform: 'uppercase' }}>
+    <span
+      style={{
+        fontSize: '0.7rem',
+        padding: '2px 8px',
+        borderRadius: 9999,
+        background: c.bg,
+        color: c.text,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+      }}
+    >
       {status.replace('_', ' ')}
     </span>
   )
@@ -185,7 +251,17 @@ function PriorityBadge({ priority }: { priority: string }) {
     critical: '#dc2626',
   }
   return (
-    <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: 4, border: `1px solid ${colors[priority] || '#999'}`, color: colors[priority] || '#999', fontWeight: 600, textTransform: 'uppercase' }}>
+    <span
+      style={{
+        fontSize: '0.65rem',
+        padding: '1px 6px',
+        borderRadius: 4,
+        border: `1px solid ${colors[priority] || '#999'}`,
+        color: colors[priority] || '#999',
+        fontWeight: 600,
+        textTransform: 'uppercase',
+      }}
+    >
       {priority}
     </span>
   )

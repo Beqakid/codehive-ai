@@ -1,102 +1,59 @@
 /**
- * Orchestrator — Phase 1
+ * Orchestrator — Phase 2
  *
- * Coordinates the agent pipeline:
+ * Coordinates the agent pipeline with live SSE streaming:
  * 1. Load CodingRequest from Payload
- * 2. Run Product Agent → save AgentRun
- * 3. Run Architect Agent → save AgentRun
- * 4. Run Reviewer Agent → save AgentRun
- * 5. Create consolidated AgentPlan
- * 6. Update CodingRequest status
+ * 2. Fetch GitHub repo context
+ * 3. Run Product Agent (OpenAI GPT-4o) → stream chunks
+ * 4. Run Architect Agent (Anthropic Claude) → stream chunks
+ * 5. Run Reviewer Agent (OpenAI GPT-4o) → stream chunks
+ * 6. Save AgentRuns + AgentPlan to Payload
+ * 7. Create GitHub branch + file + PR
+ * 8. Update CodingRequest status
  */
 
 import type { Payload } from 'payload'
-import { runProductAgent, type ProductSpec } from './productAgent'
-import { runArchitectAgent, type ArchitectureDesign } from './architectAgent'
-import { runReviewerAgent, type ReviewFeedback } from './reviewerAgent'
+import { runProductAgent } from './productAgent'
+import { runArchitectAgent } from './architectAgent'
+import { runReviewerAgent } from './reviewerAgent'
+import {
+  getRepoContext,
+  parseGithubUrl,
+  getDefaultBranchSha,
+  createBranch,
+  createOrUpdateFile,
+  createPullRequest,
+} from '../lib/github'
 
-interface AgentRunRecord {
-  id: number
-  [key: string]: unknown
-}
-
-interface OrchestratorResult {
-  agentPlan: Record<string, unknown>
-  runs: {
-    product: AgentRunRecord
-    architect: AgentRunRecord
-    reviewer: AgentRunRecord
-  }
-}
-
-async function createAgentRun(
-  payload: Payload,
-  agentName: 'product' | 'architect' | 'reviewer' | 'orchestrator',
-  codingRequestId: number,
-  input: Record<string, unknown>,
-): Promise<AgentRunRecord> {
-  const run = await payload.create({
-    collection: 'agent-runs',
-    data: {
-      agentName,
-      codingRequest: codingRequestId,
-      status: 'running',
-      input,
-    },
-  })
-  return run as unknown as AgentRunRecord
-}
-
-async function completeAgentRun(
-  payload: Payload,
-  runId: number,
-  output: Record<string, unknown>,
-  startTime: number,
-) {
-  return payload.update({
-    collection: 'agent-runs',
-    id: runId,
-    data: {
-      status: 'completed',
-      output,
-      durationMs: Date.now() - startTime,
-    },
-  })
-}
-
-async function failAgentRun(
-  payload: Payload,
-  runId: number,
-  error: string,
-  startTime: number,
-) {
-  return payload.update({
-    collection: 'agent-runs',
-    id: runId,
-    data: {
-      status: 'failed',
-      errorMessage: error,
-      durationMs: Date.now() - startTime,
-    },
-  })
-}
+export type SSEEvent =
+  | { type: 'start'; message: string }
+  | { type: 'github_context'; files: number; structure: string }
+  | { type: 'agent_start'; agent: string; message: string }
+  | { type: 'chunk'; agent: string; text: string }
+  | { type: 'agent_done'; agent: string }
+  | { type: 'pr_created'; url: string }
+  | { type: 'plan_saved'; planId: number }
+  | { type: 'done' }
+  | { type: 'error'; message: string }
 
 export async function runOrchestrator(
   payload: Payload,
   codingRequestId: number,
-): Promise<OrchestratorResult> {
-  // 1. Load the CodingRequest
+  onEvent: (event: SSEEvent) => void,
+): Promise<void> {
+  onEvent({ type: 'start', message: '🚀 Loading coding request...' })
+
+  // 1. Load CodingRequest with depth:2 to populate project.repoUrl
   const codingRequest = await payload.findByID({
     collection: 'coding-requests',
     id: codingRequestId,
-    depth: 1, // populate relationships
+    depth: 2,
   })
 
   if (!codingRequest) {
-    throw new Error(`CodingRequest with id ${codingRequestId} not found`)
+    throw new Error(`CodingRequest ${codingRequestId} not found`)
   }
 
-  // Update status to planning
   await payload.update({
     collection: 'coding-requests',
     id: codingRequestId,
@@ -106,102 +63,282 @@ export async function runOrchestrator(
   const projectObj = codingRequest.project
   const projectName =
     typeof projectObj === 'object' && projectObj !== null && 'name' in projectObj
-      ? String((projectObj as unknown as Record<string, unknown>).name ?? 'Unknown Project')
+      ? String((projectObj as Record<string, unknown>).name)
       : 'Unknown Project'
+  const repoUrl =
+    typeof projectObj === 'object' && projectObj !== null && 'repoUrl' in projectObj
+      ? String((projectObj as Record<string, unknown>).repoUrl || '')
+      : ''
 
-  // 2. Run Product Agent
-  let productSpec: ProductSpec
-  const productRun = await createAgentRun(payload, 'product', codingRequestId, {
-    title: codingRequest.title,
-    description: codingRequest.description,
+  // 2. Fetch GitHub repo context
+  let repoContext = undefined
+  const parsedRepo = repoUrl ? parseGithubUrl(repoUrl) : null
+  if (parsedRepo) {
+    try {
+      onEvent({
+        type: 'start',
+        message: `📂 Fetching repo context from ${parsedRepo.owner}/${parsedRepo.repo}...`,
+      })
+      repoContext = await getRepoContext(parsedRepo.owner, parsedRepo.repo)
+      onEvent({
+        type: 'github_context',
+        files: repoContext.files.length,
+        structure: repoContext.structure,
+      })
+    } catch (err) {
+      onEvent({ type: 'start', message: `⚠️ Could not fetch repo context: ${String(err)}` })
+    }
+  }
+
+  // 3. Product Agent
+  onEvent({
+    type: 'agent_start',
+    agent: 'product',
+    message: '📋 Product Agent analyzing requirements...',
   })
   const productStart = Date.now()
-  try {
-    productSpec = await runProductAgent({
-      title: codingRequest.title,
-      description: codingRequest.description,
-      projectName,
-    })
-    await completeAgentRun(payload, productRun.id, productSpec as unknown as Record<string, unknown>, productStart)
-  } catch (err) {
-    await failAgentRun(payload, productRun.id, String(err), productStart)
-    throw new Error(`Product Agent failed: ${err}`)
-  }
 
-  // 3. Run Architect Agent
-  let architectureDesign: ArchitectureDesign
-  const architectRun = await createAgentRun(payload, 'architect', codingRequestId, {
-    title: codingRequest.title,
-    productSpec: productSpec as unknown as Record<string, unknown>,
+  const productRun = await payload.create({
+    collection: 'agent-runs',
+    data: {
+      agentName: 'product',
+      codingRequest: codingRequestId,
+      status: 'running',
+      input: { title: codingRequest.title, description: codingRequest.description },
+    },
+  })
+
+  let productSpec = ''
+  try {
+    productSpec = await runProductAgent(
+      {
+        title: codingRequest.title,
+        description: codingRequest.description,
+        projectName,
+        repoContext,
+      },
+      (text) => onEvent({ type: 'chunk', agent: 'product', text }),
+    )
+    await payload.update({
+      collection: 'agent-runs',
+      id: productRun.id,
+      data: {
+        status: 'completed',
+        output: { markdown: productSpec },
+        durationMs: Date.now() - productStart,
+      },
+    })
+  } catch (err) {
+    await payload.update({
+      collection: 'agent-runs',
+      id: productRun.id,
+      data: { status: 'failed', errorMessage: String(err), durationMs: Date.now() - productStart },
+    })
+    throw new Error(`Product Agent failed: ${String(err)}`)
+  }
+  onEvent({ type: 'agent_done', agent: 'product' })
+
+  // 4. Architect Agent
+  onEvent({
+    type: 'agent_start',
+    agent: 'architect',
+    message: '🏗️ Architect Agent designing system...',
   })
   const architectStart = Date.now()
-  try {
-    architectureDesign = await runArchitectAgent({
-      title: codingRequest.title,
-      description: codingRequest.description,
-      productSpec,
-    })
-    await completeAgentRun(payload, architectRun.id, architectureDesign as unknown as Record<string, unknown>, architectStart)
-  } catch (err) {
-    await failAgentRun(payload, architectRun.id, String(err), architectStart)
-    throw new Error(`Architect Agent failed: ${err}`)
-  }
 
-  // 4. Run Reviewer Agent
-  let reviewFeedback: ReviewFeedback
-  const reviewerRun = await createAgentRun(payload, 'reviewer', codingRequestId, {
-    title: codingRequest.title,
-    productSpec: productSpec as unknown as Record<string, unknown>,
-    architectureDesign: architectureDesign as unknown as Record<string, unknown>,
+  const architectRun = await payload.create({
+    collection: 'agent-runs',
+    data: {
+      agentName: 'architect',
+      codingRequest: codingRequestId,
+      status: 'running',
+      input: { title: codingRequest.title, productSpec },
+    },
+  })
+
+  let architectureDesign = ''
+  try {
+    architectureDesign = await runArchitectAgent(
+      {
+        title: codingRequest.title,
+        description: codingRequest.description,
+        productSpec,
+        repoContext,
+      },
+      (text) => onEvent({ type: 'chunk', agent: 'architect', text }),
+    )
+    await payload.update({
+      collection: 'agent-runs',
+      id: architectRun.id,
+      data: {
+        status: 'completed',
+        output: { markdown: architectureDesign },
+        durationMs: Date.now() - architectStart,
+      },
+    })
+  } catch (err) {
+    await payload.update({
+      collection: 'agent-runs',
+      id: architectRun.id,
+      data: {
+        status: 'failed',
+        errorMessage: String(err),
+        durationMs: Date.now() - architectStart,
+      },
+    })
+    throw new Error(`Architect Agent failed: ${String(err)}`)
+  }
+  onEvent({ type: 'agent_done', agent: 'architect' })
+
+  // 5. Reviewer Agent
+  onEvent({
+    type: 'agent_start',
+    agent: 'reviewer',
+    message: '🔎 Reviewer Agent critiquing plan...',
   })
   const reviewerStart = Date.now()
-  try {
-    reviewFeedback = await runReviewerAgent({
-      title: codingRequest.title,
-      productSpec,
-      architectureDesign,
-    })
-    await completeAgentRun(payload, reviewerRun.id, reviewFeedback as unknown as Record<string, unknown>, reviewerStart)
-  } catch (err) {
-    await failAgentRun(payload, reviewerRun.id, String(err), reviewerStart)
-    throw new Error(`Reviewer Agent failed: ${err}`)
-  }
 
-  // 5. Create the consolidated AgentPlan
+  const reviewerRun = await payload.create({
+    collection: 'agent-runs',
+    data: {
+      agentName: 'reviewer',
+      codingRequest: codingRequestId,
+      status: 'running',
+      input: { title: codingRequest.title, productSpec, architectureDesign },
+    },
+  })
+
+  let reviewFeedback = ''
+  try {
+    reviewFeedback = await runReviewerAgent(
+      { title: codingRequest.title, productSpec, architectureDesign },
+      (text) => onEvent({ type: 'chunk', agent: 'reviewer', text }),
+    )
+    await payload.update({
+      collection: 'agent-runs',
+      id: reviewerRun.id,
+      data: {
+        status: 'completed',
+        output: { markdown: reviewFeedback },
+        durationMs: Date.now() - reviewerStart,
+      },
+    })
+  } catch (err) {
+    await payload.update({
+      collection: 'agent-runs',
+      id: reviewerRun.id,
+      data: {
+        status: 'failed',
+        errorMessage: String(err),
+        durationMs: Date.now() - reviewerStart,
+      },
+    })
+    throw new Error(`Reviewer Agent failed: ${String(err)}`)
+  }
+  onEvent({ type: 'agent_done', agent: 'reviewer' })
+
+  // 6. Save AgentPlan
+  const isApproved = reviewFeedback.toLowerCase().includes('approved')
   const agentPlan = await payload.create({
     collection: 'agent-plans',
     data: {
       codingRequest: codingRequestId,
-      productSpec: productSpec as unknown as Record<string, unknown>,
-      architectureDesign: architectureDesign as unknown as Record<string, unknown>,
-      reviewFeedback: reviewFeedback as unknown as Record<string, unknown>,
+      productSpec: { markdown: productSpec },
+      architectureDesign: { markdown: architectureDesign },
+      reviewFeedback: { markdown: reviewFeedback },
       finalPlan: {
         title: codingRequest.title,
         project: projectName,
         generatedAt: new Date().toISOString(),
-        productSpec,
-        architectureDesign,
-        reviewFeedback,
-        approved: reviewFeedback.verdict === 'approved',
+        repoUrl: repoUrl || null,
+        prUrl: null,
       },
-      status: reviewFeedback.verdict === 'approved' ? 'approved' : 'draft',
+      status: isApproved ? 'approved' : 'draft',
     },
   })
+  onEvent({ type: 'plan_saved', planId: agentPlan.id })
 
-  // 6. Update CodingRequest status based on review verdict
-  const newStatus = reviewFeedback.verdict === 'approved' ? 'approved' : 'submitted'
+  // 7. Create GitHub PR (optional — needs GITHUB_TOKEN)
+  if (parsedRepo && process.env.GITHUB_TOKEN) {
+    try {
+      onEvent({ type: 'start', message: '📝 Creating GitHub PR with agent plan...' })
+
+      const { branch: defaultBranch, sha } = await getDefaultBranchSha(
+        parsedRepo.owner,
+        parsedRepo.repo,
+      )
+      const branchName = `agent-plan/request-${codingRequestId}-${Date.now()}`
+
+      await createBranch(parsedRepo.owner, parsedRepo.repo, branchName, sha)
+
+      const planMarkdown = `# Agent Plan: ${codingRequest.title}
+
+> Generated by CodeHive AI on ${new Date().toUTCString()}
+
+---
+
+## 📋 Product Specification
+
+${productSpec}
+
+---
+
+## 🏗️ Architecture Design
+
+${architectureDesign}
+
+---
+
+## 🔎 Review Feedback
+
+${reviewFeedback}
+`
+
+      await createOrUpdateFile(
+        parsedRepo.owner,
+        parsedRepo.repo,
+        `agent-plans/plan-request-${codingRequestId}.md`,
+        planMarkdown,
+        branchName,
+        `feat: add AI agent plan for "${codingRequest.title}"`,
+      )
+
+      const prUrl = await createPullRequest(
+        parsedRepo.owner,
+        parsedRepo.repo,
+        `[Agent Plan] ${codingRequest.title}`,
+        `## 🤖 AI-Generated Plan\n\nThis PR was automatically created by **CodeHive AI** agents.\n\n| Field | Value |\n|---|---|\n| **Coding Request** | #${codingRequestId} |\n| **Project** | ${projectName} |\n| **Status** | ${isApproved ? '✅ Approved' : '📝 Needs Review'} |\n\nSee \`agent-plans/plan-request-${codingRequestId}.md\` for the full plan.`,
+        branchName,
+        defaultBranch,
+      )
+
+      onEvent({ type: 'pr_created', url: prUrl })
+
+      // Update finalPlan with PR URL
+      await payload.update({
+        collection: 'agent-plans',
+        id: agentPlan.id,
+        data: {
+          finalPlan: {
+            title: codingRequest.title,
+            project: projectName,
+            generatedAt: new Date().toISOString(),
+            repoUrl,
+            prUrl,
+          },
+        },
+      })
+    } catch (err) {
+      onEvent({ type: 'start', message: `⚠️ GitHub PR creation failed: ${String(err)}` })
+    }
+  }
+
+  // 8. Update CodingRequest status
   await payload.update({
     collection: 'coding-requests',
     id: codingRequestId,
-    data: { status: newStatus },
+    data: { status: isApproved ? 'approved' : 'submitted' },
   })
 
-  return {
-    agentPlan: agentPlan as unknown as Record<string, unknown>,
-    runs: {
-      product: productRun,
-      architect: architectRun,
-      reviewer: reviewerRun,
-    },
-  }
+  onEvent({ type: 'done' })
 }

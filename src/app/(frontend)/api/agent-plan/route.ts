@@ -1,58 +1,42 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { headers as getHeaders } from 'next/headers'
-import { getPayload } from 'payload'
-import config from '@/payload.config'
-import { runOrchestrator } from '@/agents/orchestrator'
-import { isDeveloperOrAbove } from '@/access/roles'
+/**
+ * POST /api/agent-plan
+ *
+ * Non-streaming endpoint — runs the full agent pipeline and returns
+ * the collected events as JSON. Use /api/agent-plan/stream for live SSE.
+ */
 
-// Prevent Next.js from pre-rendering this route at build time
 export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
+import { getPayload } from 'payload'
+import config from '@/payload.config'
+import { runOrchestrator, type SSEEvent } from '@/agents/orchestrator'
+
+export async function POST(request: Request) {
+  let codingRequestId: number
   try {
-    const payloadConfig = await config
-    const payload = await getPayload({ config: payloadConfig })
-
-    // Authenticate the request
-    const headers = await getHeaders()
-    const { user } = await payload.auth({ headers })
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const body = (await request.json()) as { codingRequestId?: unknown }
+    codingRequestId = Number(body.codingRequestId)
+    if (!codingRequestId || isNaN(codingRequestId)) {
+      return Response.json({ error: 'codingRequestId is required' }, { status: 400 })
     }
+  } catch {
+    return Response.json({ error: 'Invalid request body' }, { status: 400 })
+  }
 
-    if (!isDeveloperOrAbove(user)) {
-      return NextResponse.json({ error: 'Forbidden: insufficient role' }, { status: 403 })
-    }
+  const payloadConfig = await config
+  const payload = await getPayload({ config: payloadConfig })
+  const { user } = await payload.auth({ headers: new Headers(request.headers) })
 
-    const body = (await req.json()) as { codingRequestId?: number }
-    const { codingRequestId } = body
+  if (!user) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
-    if (!codingRequestId) {
-      return NextResponse.json(
-        { error: 'codingRequestId is required' },
-        { status: 400 },
-      )
-    }
+  const events: SSEEvent[] = []
 
-    // Run the orchestrator pipeline
-    const result = await runOrchestrator(payload, codingRequestId)
-
-    return NextResponse.json({
-      success: true,
-      agentPlan: result.agentPlan,
-      runs: {
-        product: { id: result.runs.product.id, status: 'completed' },
-        architect: { id: result.runs.architect.id, status: 'completed' },
-        reviewer: { id: result.runs.reviewer.id, status: 'completed' },
-      },
-    })
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error'
-    console.error('Agent plan generation failed:', error)
-    return NextResponse.json(
-      { error: message },
-      { status: 500 },
-    )
+  try {
+    await runOrchestrator(payload, codingRequestId, (event) => events.push(event))
+    return Response.json({ success: true, events })
+  } catch (err) {
+    return Response.json({ error: String(err), events }, { status: 500 })
   }
 }
