@@ -106,7 +106,7 @@ export async function runOrchestrator(
   const projectObj = codingRequest.project
   const projectName =
     typeof projectObj === 'object' && projectObj !== null && 'name' in projectObj
-      ? String((projectObj as Record<string, unknown>).name ?? 'Unknown Project')
+      ? String((projectObj as unknown as Record<string, unknown>).name ?? 'Unknown Project')
       : 'Unknown Project'
 
   // 2. Run Product Agent

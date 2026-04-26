@@ -69,6 +69,11 @@ export interface Config {
   collections: {
     users: User;
     media: Media;
+    projects: Project;
+    'coding-requests': CodingRequest;
+    'agent-plans': AgentPlan;
+    'agent-runs': AgentRun;
+    'tool-connections': ToolConnection;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -78,6 +83,11 @@ export interface Config {
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
+    projects: ProjectsSelect<false> | ProjectsSelect<true>;
+    'coding-requests': CodingRequestsSelect<false> | CodingRequestsSelect<true>;
+    'agent-plans': AgentPlansSelect<false> | AgentPlansSelect<true>;
+    'agent-runs': AgentRunsSelect<false> | AgentRunsSelect<true>;
+    'tool-connections': ToolConnectionsSelect<false> | ToolConnectionsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -123,6 +133,7 @@ export interface UserAuthOperations {
  */
 export interface User {
   id: number;
+  role: 'super_admin' | 'admin' | 'developer' | 'viewer';
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -161,6 +172,163 @@ export interface Media {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "projects".
+ */
+export interface Project {
+  id: number;
+  name: string;
+  description?: string | null;
+  status?: ('active' | 'archived' | 'paused') | null;
+  owner: number | User;
+  /**
+   * GitHub repository URL
+   */
+  repoUrl?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "coding-requests".
+ */
+export interface CodingRequest {
+  id: number;
+  title: string;
+  description: string;
+  project: number | Project;
+  requestedBy: number | User;
+  status?: ('draft' | 'submitted' | 'planning' | 'approved' | 'in_progress' | 'completed' | 'rejected') | null;
+  priority?: ('low' | 'medium' | 'high' | 'critical') | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "agent-plans".
+ */
+export interface AgentPlan {
+  id: number;
+  codingRequest: number | CodingRequest;
+  /**
+   * Output from the Product Agent
+   */
+  productSpec:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Output from the Architect Agent
+   */
+  architectureDesign:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Output from the Reviewer Agent
+   */
+  reviewFeedback:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Consolidated final plan
+   */
+  finalPlan:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  status?: ('draft' | 'approved' | 'rejected' | 'superseded') | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "agent-runs".
+ */
+export interface AgentRun {
+  id: number;
+  agentName: 'product' | 'architect' | 'reviewer' | 'orchestrator';
+  codingRequest: number | CodingRequest;
+  status?: ('running' | 'completed' | 'failed') | null;
+  /**
+   * Input passed to the agent
+   */
+  input?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Output returned by the agent
+   */
+  output?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Execution time in milliseconds
+   */
+  durationMs?: number | null;
+  errorMessage?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tool-connections".
+ */
+export interface ToolConnection {
+  id: number;
+  name: string;
+  type: 'github' | 'openai' | 'anthropic' | 'gemini' | 'custom';
+  status?: ('active' | 'inactive' | 'error') | null;
+  /**
+   * Connection configuration (keys, endpoints, etc.)
+   */
+  config?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  project?: (number | null) | Project;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -190,6 +358,26 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'media';
         value: number | Media;
+      } | null)
+    | ({
+        relationTo: 'projects';
+        value: number | Project;
+      } | null)
+    | ({
+        relationTo: 'coding-requests';
+        value: number | CodingRequest;
+      } | null)
+    | ({
+        relationTo: 'agent-plans';
+        value: number | AgentPlan;
+      } | null)
+    | ({
+        relationTo: 'agent-runs';
+        value: number | AgentRun;
+      } | null)
+    | ({
+        relationTo: 'tool-connections';
+        value: number | ToolConnection;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -238,6 +426,7 @@ export interface PayloadMigration {
  * via the `definition` "users_select".
  */
 export interface UsersSelect<T extends boolean = true> {
+  role?: T;
   updatedAt?: T;
   createdAt?: T;
   email?: T;
@@ -270,6 +459,75 @@ export interface MediaSelect<T extends boolean = true> {
   filesize?: T;
   width?: T;
   height?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "projects_select".
+ */
+export interface ProjectsSelect<T extends boolean = true> {
+  name?: T;
+  description?: T;
+  status?: T;
+  owner?: T;
+  repoUrl?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "coding-requests_select".
+ */
+export interface CodingRequestsSelect<T extends boolean = true> {
+  title?: T;
+  description?: T;
+  project?: T;
+  requestedBy?: T;
+  status?: T;
+  priority?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "agent-plans_select".
+ */
+export interface AgentPlansSelect<T extends boolean = true> {
+  codingRequest?: T;
+  productSpec?: T;
+  architectureDesign?: T;
+  reviewFeedback?: T;
+  finalPlan?: T;
+  status?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "agent-runs_select".
+ */
+export interface AgentRunsSelect<T extends boolean = true> {
+  agentName?: T;
+  codingRequest?: T;
+  status?: T;
+  input?: T;
+  output?: T;
+  durationMs?: T;
+  errorMessage?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tool-connections_select".
+ */
+export interface ToolConnectionsSelect<T extends boolean = true> {
+  name?: T;
+  type?: T;
+  status?: T;
+  config?: T;
+  project?: T;
+  updatedAt?: T;
+  createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
