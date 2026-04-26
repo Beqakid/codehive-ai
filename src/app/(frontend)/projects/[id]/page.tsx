@@ -5,6 +5,7 @@ import React from 'react'
 import Link from 'next/link'
 import config from '@/payload.config'
 import { AgentRunner } from '@/components/AgentRunner'
+import { CodeGenRunner } from '@/components/CodeGenRunner'
 import '../../styles.css'
 
 export const metadata = {
@@ -282,33 +283,49 @@ export default async function ProjectDetailPage({
                 ? crRef.title
                 : `Request #${String(crRef)}`
             const prUrl = plan.finalPlan?.prUrl
+            const isApproved = plan.status === 'approved'
+
             return (
-              <div key={plan.id} style={listItemStyle}>
-                <div>
-                  <div style={{ fontWeight: 500, fontSize: '0.95rem' }}>{crTitle}</div>
-                  <div
-                    style={{
-                      fontSize: '0.8rem',
-                      color: '#999',
-                      marginTop: '0.15rem',
-                      display: 'flex',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <span>{new Date(plan.createdAt).toLocaleDateString()}</span>
-                    {prUrl && (
-                      <a
-                        href={prUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: '#3b82f6' }}
-                      >
-                        View PR →
-                      </a>
-                    )}
+              <div
+                key={plan.id}
+                style={{
+                  padding: '0.85rem 0',
+                  borderBottom: '1px solid #f3f4f6',
+                }}
+              >
+                {/* Plan header row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: '0.95rem' }}>{crTitle}</div>
+                    <div
+                      style={{
+                        fontSize: '0.8rem',
+                        color: '#999',
+                        marginTop: '0.15rem',
+                        display: 'flex',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      <span>{new Date(plan.createdAt).toLocaleDateString()}</span>
+                      {prUrl && (
+                        <a
+                          href={prUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#3b82f6' }}
+                        >
+                          View PR →
+                        </a>
+                      )}
+                    </div>
                   </div>
+                  <StatusBadge status={plan.status} />
                 </div>
-                <StatusBadge status={plan.status} />
+
+                {/* Phase 3: Code Generation — only shown for approved plans */}
+                {isApproved && (
+                  <CodeGenRunner planId={plan.id} prUrl={prUrl} />
+                )}
               </div>
             )
           })
@@ -395,13 +412,6 @@ const cardStyle: React.CSSProperties = {
   border: '1px solid #e5e7eb',
   borderRadius: 8,
   padding: '1.25rem',
-}
-const listItemStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: '0.75rem 0',
-  borderBottom: '1px solid #f3f4f6',
 }
 const smallBtnStyle: React.CSSProperties = {
   display: 'inline-block',
