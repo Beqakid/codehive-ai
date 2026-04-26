@@ -63,11 +63,11 @@ export async function runOrchestrator(
   const projectObj = codingRequest.project
   const projectName =
     typeof projectObj === 'object' && projectObj !== null && 'name' in projectObj
-      ? String((projectObj as Record<string, unknown>).name)
+      ? String((projectObj as unknown as Record<string, unknown>).name)
       : 'Unknown Project'
   const repoUrl =
     typeof projectObj === 'object' && projectObj !== null && 'repoUrl' in projectObj
-      ? String((projectObj as Record<string, unknown>).repoUrl || '')
+      ? String((projectObj as unknown as Record<string, unknown>).repoUrl || '')
       : ''
 
   // 2. Fetch GitHub repo context
