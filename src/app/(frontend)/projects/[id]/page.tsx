@@ -6,6 +6,7 @@ import Link from 'next/link'
 import config from '@/payload.config'
 import { AgentRunner } from '@/components/AgentRunner'
 import { CodeGenRunner } from '@/components/CodeGenRunner'
+import { SandboxRunner } from '@/components/SandboxRunner'
 import '../../styles.css'
 
 export const metadata = {
@@ -325,6 +326,11 @@ export default async function ProjectDetailPage({
                 {/* Phase 3: Code Generation — only shown for approved plans */}
                 {isApproved && (
                   <CodeGenRunner planId={plan.id} prUrl={prUrl} />
+                )}
+
+                {/* Phase 4: Sandbox Tests — shown for approved plans with a PR */}
+                {isApproved && prUrl && (
+                  <SandboxRunner planId={plan.id} prUrl={prUrl} />
                 )}
               </div>
             )
