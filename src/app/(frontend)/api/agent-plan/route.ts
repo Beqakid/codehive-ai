@@ -5,6 +5,9 @@ import config from '@/payload.config'
 import { runOrchestrator } from '@/agents/orchestrator'
 import { isDeveloperOrAbove } from '@/access/roles'
 
+// Prevent Next.js from pre-rendering this route at build time
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const payloadConfig = await config
