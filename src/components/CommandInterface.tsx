@@ -30,42 +30,39 @@ interface CoachAnalysis {
   assumptions?: string[]
 }
 
-const MODES: { value: Mode; label: string; icon: string; desc: string; gradient: string; border: string; glow: string }[] = [
+const MODES: { value: Mode; label: string; icon: string; desc: string }[] = [
   {
     value: 'plan_only',
     label: 'Plan Only',
     icon: '📋',
     desc: 'AI agents generate plan + open PR',
-    gradient: 'from-blue-500/20 to-blue-600/5',
-    border: 'border-blue-500/40',
-    glow: 'shadow-blue-500/10',
   },
   {
     value: 'plan_code',
     label: 'Plan + Code',
     icon: '⚡',
     desc: 'Plan + generate all implementation files',
-    gradient: 'from-violet-500/20 to-purple-600/5',
-    border: 'border-violet-500/40',
-    glow: 'shadow-violet-500/10',
   },
   {
     value: 'full_build',
     label: 'Full Build',
     icon: '🚀',
     desc: 'Plan + code + run sandbox tests',
-    gradient: 'from-amber-500/20 to-orange-600/5',
-    border: 'border-amber-500/40',
-    glow: 'shadow-amber-500/10',
   },
 ]
 
+const MODE_COLORS: Record<Mode, { border: string; bg: string; glow: string; check: string }> = {
+  plan_only: { border: 'rgba(59,130,246,0.45)', bg: 'rgba(59,130,246,0.08)', glow: 'rgba(59,130,246,0.1)', check: '#60a5fa' },
+  plan_code: { border: 'rgba(139,92,246,0.45)', bg: 'rgba(139,92,246,0.08)', glow: 'rgba(139,92,246,0.1)', check: '#a78bfa' },
+  full_build: { border: 'rgba(245,158,11,0.45)', bg: 'rgba(245,158,11,0.08)', glow: 'rgba(245,158,11,0.1)', check: '#fbbf24' },
+}
+
 const AGENT_COLORS: Record<string, string> = {
-  product: 'text-blue-400',
-  architect: 'text-violet-400',
-  reviewer: 'text-emerald-400',
-  codegen: 'text-amber-400',
-  sandbox: 'text-rose-400',
+  product: '#60a5fa',
+  architect: '#a78bfa',
+  reviewer: '#34d399',
+  codegen: '#fbbf24',
+  sandbox: '#f472b6',
 }
 
 const AGENT_ICONS: Record<string, string> = {
@@ -88,7 +85,6 @@ export default function CommandInterface() {
   const logsEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // Coach state
   const [coachEnabled, setCoachEnabled] = useState(true)
   const [coachAnalysis, setCoachAnalysis] = useState<CoachAnalysis | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -125,15 +121,12 @@ export default function CommandInterface() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: prompt.trim() }),
       })
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Coach failed' })) as { error?: string }
         throw new Error(err.error || `HTTP ${res.status}`)
       }
-
       const analysis = (await res.json()) as CoachAnalysis
       setCoachAnalysis(analysis)
-
       if (analysis.mode === 'interactive' && analysis.questions?.length) {
         setStatus('questions')
       } else {
@@ -152,22 +145,13 @@ export default function CommandInterface() {
   const handleSubmitAnswers = async () => {
     if (!coachAnalysis?.questions?.length) return
     setCoachLoading(true)
-
     try {
       const res = await fetch('/api/coach/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          questions: coachAnalysis.questions,
-          answers,
-        }),
+        body: JSON.stringify({ prompt: prompt.trim(), questions: coachAnalysis.questions, answers }),
       })
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const result = (await res.json()) as { enrichedPrompt: string; assumptions: string[] }
       setEnrichedPrompt(result.enrichedPrompt)
       setAssumptions(result.assumptions || [])
@@ -180,9 +164,7 @@ export default function CommandInterface() {
     }
   }
 
-  const handleApproveEnriched = () => {
-    runPipeline(enrichedPrompt || prompt.trim())
-  }
+  const handleApproveEnriched = () => { runPipeline(enrichedPrompt || prompt.trim()) }
 
   /* ---------------------------------------------------------------- */
   /*  Main pipeline                                                    */
@@ -190,12 +172,7 @@ export default function CommandInterface() {
 
   const handleSubmit = () => {
     if (!prompt.trim() || status === 'streaming' || status === 'coaching') return
-
-    if (coachEnabled) {
-      handleCoachAnalyze()
-    } else {
-      runPipeline(prompt.trim())
-    }
+    if (coachEnabled) { handleCoachAnalyze() } else { runPipeline(prompt.trim()) }
   }
 
   const runPipeline = async (finalPrompt: string) => {
@@ -215,11 +192,7 @@ export default function CommandInterface() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({
-          prompt: finalPrompt,
-          mode,
-          projectName: projectName.trim() || undefined,
-        }),
+        body: JSON.stringify({ prompt: finalPrompt, mode, projectName: projectName.trim() || undefined }),
         signal: abort.signal,
       })
 
@@ -227,15 +200,8 @@ export default function CommandInterface() {
         let errDetail = `HTTP ${res.status}`
         try {
           const errBody = await res.text()
-          try {
-            const parsed = JSON.parse(errBody) as { error?: string }
-            if (parsed.error) errDetail = parsed.error
-          } catch {
-            if (errBody.length > 0 && errBody.length < 500) errDetail = errBody
-          }
-        } catch {
-          // ignore
-        }
+          try { const parsed = JSON.parse(errBody) as { error?: string }; if (parsed.error) errDetail = parsed.error } catch { if (errBody.length > 0 && errBody.length < 500) errDetail = errBody }
+        } catch { /* ignore */ }
         throw new Error(errDetail)
       }
 
@@ -248,7 +214,6 @@ export default function CommandInterface() {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
         const parts = buffer.split('\n\n')
         buffer = parts.pop() ?? ''
@@ -256,105 +221,52 @@ export default function CommandInterface() {
         for (const part of parts) {
           const line = part.trim()
           if (!line.startsWith('data: ')) continue
-
           let event: Record<string, unknown>
-          try {
-            event = JSON.parse(line.slice(6)) as Record<string, unknown>
-          } catch {
-            continue
-          }
+          try { event = JSON.parse(line.slice(6)) as Record<string, unknown> } catch { continue }
 
           try {
             switch (event.type) {
               case 'created':
                 currentProjectId = event.projectId as number
-                addLog({
-                  type: 'start',
-                  text: `✅ Created project #${event.projectId} + coding request #${event.codingRequestId}`,
-                })
-                addLog({
-                  type: 'start',
-                  text: `🔌 Starting ${mode.replace('_', ' ')} pipeline...`,
-                })
+                addLog({ type: 'start', text: `✅ Created project #${event.projectId} + coding request #${event.codingRequestId}` })
+                addLog({ type: 'start', text: `🔌 Starting ${mode.replace('_', ' ')} pipeline...` })
                 break
-              case 'start':
-                addLog({ type: 'start', text: String(event.message ?? '') })
-                break
-              case 'phase':
-                addLog({
-                  type: 'phase',
-                  text: String(event.message ?? ''),
-                  phase: String(event.phase ?? ''),
-                })
-                break
+              case 'start': addLog({ type: 'start', text: String(event.message ?? '') }); break
+              case 'phase': addLog({ type: 'phase', text: String(event.message ?? ''), phase: String(event.phase ?? '') }); break
               case 'agent_start':
                 setCurrentAgent(String(event.agent ?? ''))
-                addLog({
-                  type: 'agent_start',
-                  text: String(event.message ?? ''),
-                  agent: String(event.agent ?? ''),
-                })
+                addLog({ type: 'agent_start', text: String(event.message ?? ''), agent: String(event.agent ?? '') })
                 break
               case 'agent_done':
-                addLog({
-                  type: 'agent_done',
-                  text: `✅ ${event.agent} agent done`,
-                  agent: String(event.agent ?? ''),
-                })
+                addLog({ type: 'agent_done', text: `✅ ${event.agent} agent done`, agent: String(event.agent ?? '') })
                 setCurrentAgent(null)
                 break
-              case 'chunk':
-                break
-              case 'github_context':
-                addLog({ type: 'github_context', text: `📂 Loaded ${event.files} repo files` })
-                break
-              case 'pr_created':
-                addLog({ type: 'pr_created', text: `🔗 PR created: ${event.url}` })
-                break
-              case 'plan_saved':
-                addLog({ type: 'plan_saved', text: `💾 Plan #${event.planId} saved` })
-                break
-              case 'file_done':
-                addLog({ type: 'file_committed', text: `📄 Committed: ${event.file}` })
-                break
-              case 'sandbox_step':
-                addLog({ type: 'sandbox_step', text: `🧪 ${event.step}: ${event.status}` })
-                break
-              case 'codegen_blocked':
-                addLog({ type: 'error', text: `⚠️ Code generation blocked — reviewer requested revisions` })
-                break
+              case 'chunk': break
+              case 'github_context': addLog({ type: 'github_context', text: `📂 Loaded ${event.files} repo files` }); break
+              case 'pr_created': addLog({ type: 'pr_created', text: `🔗 PR created: ${event.url}` }); break
+              case 'plan_saved': addLog({ type: 'plan_saved', text: `💾 Plan #${event.planId} saved` }); break
+              case 'file_done': addLog({ type: 'file_committed', text: `📄 Committed: ${event.file}` }); break
+              case 'sandbox_step': addLog({ type: 'sandbox_step', text: `🧪 ${event.step}: ${event.status}` }); break
+              case 'codegen_blocked': addLog({ type: 'error', text: '⚠️ Code generation blocked — reviewer requested revisions' }); break
               case 'done':
-                setResult({
-                  planId: event.planId as number | undefined,
-                  prUrl: event.prUrl as string | undefined,
-                  projectId: currentProjectId,
-                })
-                setStatus('done')
-                streamDone = true
+                setResult({ planId: event.planId as number | undefined, prUrl: event.prUrl as string | undefined, projectId: currentProjectId })
+                setStatus('done'); streamDone = true
                 addLog({ type: 'done', text: '🎉 Pipeline complete!' })
                 break
               case 'error':
-                setError(String(event.message ?? 'Unknown error'))
-                setStatus('error')
-                streamDone = true
+                setError(String(event.message ?? 'Unknown error')); setStatus('error'); streamDone = true
                 addLog({ type: 'error', text: `❌ ${event.message ?? 'Unknown error'}` })
                 break
             }
-          } catch (handlerErr) {
-            addLog({ type: 'error', text: `❌ Event handler error: ${String(handlerErr)}` })
-          }
+          } catch (handlerErr) { addLog({ type: 'error', text: `❌ Event handler error: ${String(handlerErr)}` }) }
         }
       }
 
-      if (!streamDone) {
-        setStatus('done')
-        addLog({ type: 'done', text: '🎉 Stream ended' })
-      }
+      if (!streamDone) { setStatus('done'); addLog({ type: 'done', text: '🎉 Stream ended' }) }
     } catch (err) {
       if (String(err).includes('AbortError') || String(err).includes('abort')) return
       const msg = String(err)
-      setError(msg)
-      setStatus('error')
+      setError(msg); setStatus('error')
       addLog({ type: 'error', text: `❌ ${msg}` })
     }
   }
@@ -366,184 +278,193 @@ export default function CommandInterface() {
   }
 
   const resetAll = () => {
-    setStatus('idle')
-    setLogs([])
-    setResult(null)
-    setError(null)
-    setPrompt('')
-    setProjectName('')
-    setCoachAnalysis(null)
-    setAnswers({})
-    setEnrichedPrompt('')
-    setAssumptions([])
-    setEditingEnriched(false)
+    setStatus('idle'); setLogs([]); setResult(null); setError(null)
+    setPrompt(''); setProjectName(''); setCoachAnalysis(null)
+    setAnswers({}); setEnrichedPrompt(''); setAssumptions([]); setEditingEnriched(false)
   }
 
   const isRunning = status === 'streaming'
   const isCoaching = status === 'coaching' || status === 'questions' || status === 'enriched'
-  const scoreColor =
-    (coachAnalysis?.completenessScore ?? 0) >= 0.7
-      ? 'text-emerald-400'
-      : (coachAnalysis?.completenessScore ?? 0) >= 0.4
-        ? 'text-amber-400'
-        : 'text-rose-400'
-  const scoreBg =
-    (coachAnalysis?.completenessScore ?? 0) >= 0.7
-      ? 'bg-emerald-500/10 border-emerald-500/30'
-      : (coachAnalysis?.completenessScore ?? 0) >= 0.4
-        ? 'bg-amber-500/10 border-amber-500/30'
-        : 'bg-rose-500/10 border-rose-500/30'
+  const disabled = isRunning || isCoaching
+  const score = coachAnalysis?.completenessScore ?? 0
+  const scoreColor = score >= 0.7 ? '#34d399' : score >= 0.4 ? '#fbbf24' : '#f87171'
+
+  /* ================================================================ */
+  /*  Render                                                           */
+  /* ================================================================ */
 
   return (
-    <div className="relative rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(15,23,42,0.85))', border: '1px solid rgba(51,65,85,0.5)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(51,65,85,0.3), inset 0 1px 0 rgba(148,163,184,0.05)' }}>
-      {/* Top accent gradient line */}
-      <div style={{ height: 2, background: 'linear-gradient(90deg, #3b82f6, #8b5cf6, #f59e0b, #ef4444)', opacity: 0.8 }} />
+    <div style={{
+      borderRadius: 16,
+      overflow: 'hidden',
+      background: 'linear-gradient(145deg, rgba(15,23,42,0.97), rgba(8,15,30,0.95))',
+      border: '1px solid rgba(51,65,85,0.45)',
+      boxShadow: '0 25px 60px -15px rgba(0,0,0,0.5), inset 0 1px 0 rgba(148,163,184,0.04)',
+    }}>
+      {/* Top gradient accent */}
+      <div style={{ height: 2, background: 'linear-gradient(90deg, #3b82f6, #8b5cf6, #f59e0b, #ef4444)', opacity: 0.75 }} />
 
       {/* Header */}
-      <div className="px-6 py-5 flex items-center gap-4" style={{ borderBottom: '1px solid rgba(51,65,85,0.4)', background: 'rgba(15,23,42,0.5)' }}>
-        <div className="relative">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', boxShadow: '0 4px 12px rgba(245,158,11,0.3)' }}>
-            ⌘
-          </div>
+      <div style={{
+        padding: '18px 24px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        borderBottom: '1px solid rgba(51,65,85,0.3)',
+        background: 'rgba(15,23,42,0.4)',
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+          boxShadow: '0 4px 14px rgba(245,158,11,0.3)',
+          fontSize: 18, position: 'relative',
+        }}>
+          ⌘
           {isRunning && (
-            <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-900 animate-pulse" />
+            <span style={{
+              position: 'absolute', top: -2, right: -2,
+              width: 10, height: 10, borderRadius: '50%',
+              background: '#34d399', border: '2px solid #0f172a',
+              animation: 'pulse 1.5s infinite',
+            }} />
           )}
         </div>
-        <div className="flex-1">
-          <h2 className="text-white font-bold text-base tracking-tight" style={{ letterSpacing: '-0.01em' }}>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.01em' }}>
             Global Command Interface
           </h2>
-          <p className="text-slate-400 text-xs mt-0.5">
+          <p style={{ margin: '3px 0 0', fontSize: 12, color: '#64748b' }}>
             Describe what to build → AI agents handle the rest
           </p>
         </div>
 
-        {/* Status indicators */}
+        {/* Live status pill */}
         {isRunning && (
-          <div className="flex items-center gap-2.5 px-4 py-2 rounded-full" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-            </span>
-            <span className="text-emerald-400 text-xs font-medium">
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 14px', borderRadius: 20,
+            background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34d399', animation: 'pulse 1.5s infinite' }} />
+            <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600 }}>
               {currentAgent ? `${AGENT_ICONS[currentAgent] || '🤖'} ${currentAgent} running…` : 'Initializing…'}
             </span>
           </div>
         )}
         {status === 'coaching' && (
-          <div className="flex items-center gap-2.5 px-4 py-2 rounded-full" style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)' }}>
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500" />
-            </span>
-            <span className="text-cyan-400 text-xs font-medium">🎯 Analyzing prompt…</span>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 14px', borderRadius: 20,
+            background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#06b6d4', animation: 'pulse 1.5s infinite' }} />
+            <span style={{ fontSize: 11, color: '#06b6d4', fontWeight: 600 }}>🎯 Analyzing prompt…</span>
           </div>
         )}
       </div>
 
-      <div className="p-6 space-y-6">
-        {/* ============================================================ */}
-        {/*  Prompt input                                                 */}
-        {/* ============================================================ */}
+      {/* Body */}
+      <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 22 }}>
+
+        {/* ── Prompt textarea ── */}
         <div>
-          <div className="flex items-center justify-between mb-2.5">
-            <label className="text-xs text-slate-400 font-semibold uppercase tracking-widest">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <label style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               What do you want to build?
             </label>
-            <span className="text-[10px] text-slate-600 font-mono">⌘ + Enter to submit</span>
+            <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>⌘ + Enter to submit</span>
           </div>
-          <div className="relative group">
-            <textarea
-              className="w-full rounded-xl text-white text-sm p-4 pr-5 resize-none focus:outline-none transition-all duration-200 placeholder-slate-600"
-              style={{
-                background: 'rgba(15,23,42,0.6)',
-                border: '1px solid rgba(51,65,85,0.5)',
-                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)',
-                lineHeight: 1.6,
-              }}
-              rows={4}
-              placeholder="e.g. Build a project management SaaS with Kanban boards, task assignments, team workspaces, due dates, and user auth…"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              disabled={isRunning || isCoaching}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit()
-              }}
-              onFocus={(e) => {
-                (e.target as HTMLTextAreaElement).style.borderColor = 'rgba(245,158,11,0.5)'
-                ;(e.target as HTMLTextAreaElement).style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2), 0 0 0 3px rgba(245,158,11,0.08)'
-              }}
-              onBlur={(e) => {
-                (e.target as HTMLTextAreaElement).style.borderColor = 'rgba(51,65,85,0.5)'
-                ;(e.target as HTMLTextAreaElement).style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.2)'
-              }}
-            />
-          </div>
+          <textarea
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              background: 'rgba(15,23,42,0.6)',
+              border: '1px solid rgba(51,65,85,0.5)',
+              borderRadius: 12, color: '#f1f5f9', fontSize: 14,
+              padding: '14px 16px', resize: 'none', outline: 'none',
+              lineHeight: 1.65, fontFamily: 'inherit',
+              transition: 'border-color 0.2s, box-shadow 0.2s',
+            }}
+            rows={4}
+            placeholder="e.g. Build a project management SaaS with Kanban boards, task assignments, team workspaces, due dates, and user auth…"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            disabled={disabled}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit() }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(245,158,11,0.5)'
+              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.08), inset 0 2px 4px rgba(0,0,0,0.15)'
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(51,65,85,0.5)'
+              e.currentTarget.style.boxShadow = 'none'
+            }}
+          />
         </div>
 
-        {/* ============================================================ */}
-        {/*  Project name + Mode selector — side by side                  */}
-        {/* ============================================================ */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* ── Project name + Build mode ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20, alignItems: 'start' }}>
           {/* Project name */}
-          <div className="lg:col-span-1">
-            <label className="block text-xs text-slate-400 mb-2.5 font-semibold uppercase tracking-widest">
-              Project name <span className="text-slate-600 normal-case tracking-normal font-normal">(optional)</span>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+              Project name <span style={{ color: '#475569', fontWeight: 400, textTransform: 'none', letterSpacing: 'normal' }}>(optional)</span>
             </label>
             <input
               type="text"
-              className="w-full rounded-lg text-white text-sm px-4 py-3 focus:outline-none transition-all duration-200 placeholder-slate-600"
               style={{
+                width: '100%', boxSizing: 'border-box',
                 background: 'rgba(15,23,42,0.6)',
                 border: '1px solid rgba(51,65,85,0.5)',
+                borderRadius: 10, color: '#f1f5f9', fontSize: 13,
+                padding: '10px 14px', outline: 'none',
+                transition: 'border-color 0.2s',
               }}
               placeholder="My Awesome Project"
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
-              disabled={isRunning || isCoaching}
-              onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(245,158,11,0.5)' }}
-              onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(51,65,85,0.5)' }}
+              disabled={disabled}
+              onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(245,158,11,0.5)' }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(51,65,85,0.5)' }}
             />
           </div>
 
-          {/* Mode selector */}
-          <div className="lg:col-span-2">
-            <label className="block text-xs text-slate-400 mb-2.5 font-semibold uppercase tracking-widest">
+          {/* Build mode */}
+          <div>
+            <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
               Build mode
             </label>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               {MODES.map((m) => {
                 const active = mode === m.value
+                const colors = MODE_COLORS[m.value]
                 return (
                   <button
                     key={m.value}
-                    onClick={() => !isRunning && !isCoaching && setMode(m.value)}
-                    disabled={isRunning || isCoaching}
-                    className={`relative rounded-xl p-3 text-left transition-all duration-200 group ${isRunning || isCoaching ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                    onClick={() => !disabled && setMode(m.value)}
+                    disabled={disabled}
                     style={{
-                      background: active
-                        ? `linear-gradient(135deg, ${m.value === 'plan_only' ? 'rgba(59,130,246,0.12)' : m.value === 'plan_code' ? 'rgba(139,92,246,0.12)' : 'rgba(245,158,11,0.12)'}, transparent)`
-                        : 'rgba(15,23,42,0.4)',
-                      border: `1px solid ${active
-                        ? m.value === 'plan_only' ? 'rgba(59,130,246,0.4)' : m.value === 'plan_code' ? 'rgba(139,92,246,0.4)' : 'rgba(245,158,11,0.4)'
-                        : 'rgba(51,65,85,0.4)'}`,
-                      boxShadow: active
-                        ? `0 4px 12px ${m.value === 'plan_only' ? 'rgba(59,130,246,0.08)' : m.value === 'plan_code' ? 'rgba(139,92,246,0.08)' : 'rgba(245,158,11,0.08)'}`
-                        : 'none',
+                      position: 'relative',
+                      padding: '12px 14px', borderRadius: 12,
+                      textAlign: 'left', cursor: disabled ? 'not-allowed' : 'pointer',
+                      opacity: disabled ? 0.5 : 1,
+                      background: active ? colors.bg : 'rgba(15,23,42,0.3)',
+                      border: `1px solid ${active ? colors.border : 'rgba(51,65,85,0.35)'}`,
+                      boxShadow: active ? `0 4px 14px ${colors.glow}` : 'none',
+                      transition: 'all 0.2s',
                     }}
                   >
                     {active && (
-                      <div style={{ position: 'absolute', top: 8, right: 10 }}>
-                        <svg style={{ width: 14, height: 14, color: m.value === 'plan_only' ? '#60a5fa' : m.value === 'plan_code' ? '#a78bfa' : '#fbbf24' }} fill="currentColor" viewBox="0 0 20 20">
+                      <span style={{ position: 'absolute', top: 8, right: 10 }}>
+                        <svg style={{ width: 14, height: 14, display: 'block' }} fill={colors.check} viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
-                      </div>
+                      </span>
                     )}
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-sm">{m.icon}</span>
-                      <span className={`font-semibold text-xs ${active ? 'text-white' : 'text-slate-400'}`}>{m.label}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>{m.icon}</span>
+                      <span style={{ fontWeight: 700, fontSize: 12, color: active ? '#f1f5f9' : '#94a3b8' }}>{m.label}</span>
                     </div>
-                    <div className={`text-[11px] leading-snug ${active ? 'text-slate-300' : 'text-slate-500'}`}>{m.desc}</div>
+                    <div style={{ fontSize: 11, lineHeight: 1.4, color: active ? '#cbd5e1' : '#475569' }}>{m.desc}</div>
                   </button>
                 )
               })}
@@ -551,70 +472,69 @@ export default function CommandInterface() {
           </div>
         </div>
 
-        {/* ============================================================ */}
-        {/*  Action bar — Coach toggle + Submit + Reset                   */}
-        {/* ============================================================ */}
-        <div className="flex items-center gap-3 pt-1">
-          {/* Coach toggle — pill style */}
+        {/* ── Action bar ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 2 }}>
+          {/* Coach toggle */}
           <button
-            onClick={() => !isRunning && !isCoaching && setCoachEnabled(!coachEnabled)}
-            disabled={isRunning || isCoaching}
-            className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-semibold transition-all duration-200 ${isRunning || isCoaching ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+            onClick={() => !disabled && setCoachEnabled(!coachEnabled)}
+            disabled={disabled}
             style={{
-              background: coachEnabled ? 'rgba(6,182,212,0.1)' : 'rgba(15,23,42,0.4)',
-              border: `1px solid ${coachEnabled ? 'rgba(6,182,212,0.35)' : 'rgba(51,65,85,0.4)'}`,
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 16px', borderRadius: 12,
+              background: coachEnabled ? 'rgba(6,182,212,0.08)' : 'rgba(15,23,42,0.3)',
+              border: `1px solid ${coachEnabled ? 'rgba(6,182,212,0.3)' : 'rgba(51,65,85,0.35)'}`,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.5 : 1,
+              transition: 'all 0.2s',
+              fontSize: 12, fontWeight: 700,
+              color: coachEnabled ? '#67e8f9' : '#64748b',
             }}
           >
-            <div className="relative">
-              <div
-                className="w-7 h-4 rounded-full transition-colors duration-200"
-                style={{ background: coachEnabled ? 'rgba(6,182,212,0.4)' : 'rgba(51,65,85,0.6)' }}
-              >
-                <div
-                  className="w-3 h-3 rounded-full absolute top-0.5 transition-all duration-200"
-                  style={{
-                    background: coachEnabled ? '#06b6d4' : '#475569',
-                    left: coachEnabled ? '14px' : '2px',
-                    boxShadow: coachEnabled ? '0 0 8px rgba(6,182,212,0.5)' : 'none',
-                  }}
-                />
-              </div>
+            {/* Toggle switch */}
+            <div style={{ position: 'relative', width: 28, height: 16, borderRadius: 8, background: coachEnabled ? 'rgba(6,182,212,0.35)' : 'rgba(51,65,85,0.5)', transition: 'background 0.2s' }}>
+              <div style={{
+                position: 'absolute', top: 2, width: 12, height: 12, borderRadius: 6,
+                background: coachEnabled ? '#06b6d4' : '#475569',
+                left: coachEnabled ? 14 : 2,
+                boxShadow: coachEnabled ? '0 0 8px rgba(6,182,212,0.5)' : 'none',
+                transition: 'all 0.2s',
+              }} />
             </div>
-            <span className={coachEnabled ? 'text-cyan-300' : 'text-slate-500'}>
-              🎯 Coach
-            </span>
+            🎯 Coach
           </button>
 
-          {/* Main submit button */}
+          {/* Submit button */}
           <button
             onClick={isRunning ? handleStop : handleSubmit}
             disabled={!isRunning && !prompt.trim()}
-            className="flex-1 py-3.5 rounded-xl font-bold text-sm transition-all duration-200"
-            style={
-              isRunning
-                ? { background: 'linear-gradient(135deg, #dc2626, #b91c1c)', color: 'white', boxShadow: '0 4px 15px rgba(220,38,38,0.3)' }
+            style={{
+              flex: 1, padding: '12px 20px', borderRadius: 12,
+              fontWeight: 800, fontSize: 13, border: 'none',
+              cursor: (!isRunning && !prompt.trim()) ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s',
+              ...(isRunning
+                ? { background: 'linear-gradient(135deg, #dc2626, #b91c1c)', color: '#fff', boxShadow: '0 4px 16px rgba(220,38,38,0.3)' }
                 : status === 'coaching'
-                  ? { background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)', color: '#67e8f9', cursor: 'wait' }
+                  ? { background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', color: '#67e8f9', cursor: 'wait' }
                   : prompt.trim()
-                    ? { background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', boxShadow: '0 4px 15px rgba(245,158,11,0.25), 0 0 0 1px rgba(245,158,11,0.1)' }
-                    : { background: 'rgba(30,41,59,0.5)', color: '#475569', cursor: 'not-allowed', border: '1px solid rgba(51,65,85,0.3)' }
-            }
+                    ? { background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', boxShadow: '0 4px 16px rgba(245,158,11,0.25)' }
+                    : { background: 'rgba(30,41,59,0.4)', color: '#475569', border: '1px solid rgba(51,65,85,0.3)' }
+              ),
+            }}
           >
-            {isRunning
-              ? '⏹ Stop Pipeline'
-              : status === 'coaching'
-                ? '🎯 Analyzing…'
-                : coachEnabled
-                  ? '🎯 Analyze & Build'
-                  : '⌘ Run Pipeline'}
+            {isRunning ? '⏹ Stop Pipeline' : status === 'coaching' ? '🎯 Analyzing…' : coachEnabled ? '🎯 Analyze & Build' : '⌘ Run Pipeline'}
           </button>
 
-          {/* Reset button */}
+          {/* Reset */}
           {(status === 'done' || status === 'error') && (
             <button
               onClick={resetAll}
-              className="px-5 py-3.5 rounded-xl text-sm font-medium text-slate-400 transition-all duration-200 hover:text-white"
-              style={{ background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.4)' }}
+              style={{
+                padding: '12px 20px', borderRadius: 12,
+                fontSize: 13, fontWeight: 600, color: '#94a3b8',
+                background: 'rgba(15,23,42,0.3)', border: '1px solid rgba(51,65,85,0.35)',
+                cursor: 'pointer', transition: 'all 0.2s',
+              }}
             >
               ↺ New
             </button>
@@ -622,79 +542,83 @@ export default function CommandInterface() {
         </div>
 
         {/* ============================================================ */}
-        {/*  COACH: Questions panel                                       */}
+        {/*  COACH: Questions                                             */}
         {/* ============================================================ */}
         {status === 'questions' && coachAnalysis?.questions && (
-          <div className="rounded-xl overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.06), rgba(15,23,42,0.8))', border: '1px solid rgba(6,182,212,0.2)', boxShadow: '0 8px 32px rgba(6,182,212,0.05)' }}>
-            <div className="px-5 py-3.5 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(6,182,212,0.15)' }}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style={{ background: 'rgba(6,182,212,0.15)' }}>
-                  🎯
-                </div>
-                <div>
-                  <span className="text-cyan-300 font-bold text-sm">Prompt Coach</span>
-                  <span className={`ml-3 text-xs font-mono px-2 py-0.5 rounded-full border ${scoreBg} ${scoreColor}`}>
-                    {Math.round((coachAnalysis.completenessScore ?? 0) * 100)}% complete
-                  </span>
-                </div>
+          <div style={{
+            borderRadius: 12, overflow: 'hidden',
+            background: 'linear-gradient(145deg, rgba(6,182,212,0.05), rgba(8,15,30,0.8))',
+            border: '1px solid rgba(6,182,212,0.2)',
+            boxShadow: '0 8px 32px rgba(6,182,212,0.04)',
+          }}>
+            <div style={{
+              padding: '12px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              borderBottom: '1px solid rgba(6,182,212,0.12)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(6,182,212,0.12)', fontSize: 14 }}>🎯</div>
+                <span style={{ fontWeight: 700, fontSize: 13, color: '#67e8f9' }}>Prompt Coach</span>
+                <span style={{
+                  fontSize: 11, fontFamily: 'monospace', color: scoreColor,
+                  padding: '2px 10px', borderRadius: 20,
+                  background: `${scoreColor}15`, border: `1px solid ${scoreColor}30`,
+                }}>
+                  {Math.round(score * 100)}% complete
+                </span>
               </div>
-              <span className="text-xs text-slate-500 font-medium">
-                {coachAnalysis.detectedIntent}
-              </span>
+              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>{coachAnalysis.detectedIntent}</span>
             </div>
 
-            <div className="p-5 space-y-4">
-              <p className="text-slate-300 text-sm leading-relaxed">
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.5 }}>
                 A few quick questions to help the AI agents build exactly what you need:
               </p>
 
               {coachAnalysis.questions.map((q, idx) => (
                 <div key={q.id}>
-                  <label className="flex items-center gap-2 text-sm text-cyan-200 mb-2 font-medium">
-                    <span className="w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center" style={{ background: 'rgba(6,182,212,0.15)', color: '#67e8f9' }}>
-                      {idx + 1}
-                    </span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#67e8f9', marginBottom: 8, fontWeight: 600 }}>
+                    <span style={{
+                      width: 20, height: 20, borderRadius: 6, fontSize: 10, fontWeight: 800,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: 'rgba(6,182,212,0.12)', color: '#67e8f9',
+                    }}>{idx + 1}</span>
                     {q.question}
                   </label>
                   <input
                     type="text"
-                    className="w-full rounded-lg text-white text-sm px-4 py-2.5 focus:outline-none transition-all duration-200 placeholder-slate-600"
-                    style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(51,65,85,0.5)' }}
+                    style={{
+                      width: '100%', boxSizing: 'border-box',
+                      background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(51,65,85,0.5)',
+                      borderRadius: 10, color: '#f1f5f9', fontSize: 13,
+                      padding: '10px 14px', outline: 'none', transition: 'border-color 0.2s',
+                    }}
                     placeholder={q.hint}
                     value={answers[q.id] || ''}
                     onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmitAnswers()
-                    }}
-                    onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(6,182,212,0.5)' }}
-                    onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = 'rgba(51,65,85,0.5)' }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmitAnswers() }}
+                    onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(6,182,212,0.5)' }}
+                    onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(51,65,85,0.5)' }}
                   />
                 </div>
               ))}
 
-              <div className="flex gap-3 pt-2">
+              <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
                 <button
                   onClick={handleSubmitAnswers}
                   disabled={coachLoading}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm transition-all duration-200 disabled:opacity-50"
-                  style={{ background: 'linear-gradient(135deg, #06b6d4, #0891b2)', color: 'white', boxShadow: '0 4px 12px rgba(6,182,212,0.2)' }}
+                  style={{
+                    flex: 1, padding: '11px 16px', borderRadius: 12,
+                    fontWeight: 800, fontSize: 13, border: 'none',
+                    background: 'linear-gradient(135deg, #06b6d4, #0891b2)', color: '#fff',
+                    boxShadow: '0 4px 14px rgba(6,182,212,0.2)',
+                    cursor: coachLoading ? 'wait' : 'pointer', opacity: coachLoading ? 0.6 : 1,
+                  }}
                 >
                   {coachLoading ? '✨ Enriching…' : '✅ Submit Answers'}
                 </button>
-                <button
-                  onClick={() => runPipeline(prompt.trim())}
-                  className="px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white transition-all"
-                  style={{ background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.4)' }}
-                >
-                  Skip →
-                </button>
-                <button
-                  onClick={() => { setStatus('idle'); setCoachAnalysis(null) }}
-                  className="px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white transition-all"
-                  style={{ background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.4)' }}
-                >
-                  Cancel
-                </button>
+                <button onClick={() => runPipeline(prompt.trim())} style={secondaryBtnStyle}>Skip →</button>
+                <button onClick={() => { setStatus('idle'); setCoachAnalysis(null) }} style={secondaryBtnStyle}>Cancel</button>
               </div>
             </div>
           </div>
@@ -704,42 +628,62 @@ export default function CommandInterface() {
         {/*  COACH: Enriched prompt review                                */}
         {/* ============================================================ */}
         {status === 'enriched' && enrichedPrompt && (
-          <div className="rounded-xl overflow-hidden" style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.06), rgba(15,23,42,0.8))', border: '1px solid rgba(6,182,212,0.2)', boxShadow: '0 8px 32px rgba(6,182,212,0.05)' }}>
-            <div className="px-5 py-3.5 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(6,182,212,0.15)' }}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style={{ background: 'rgba(16,185,129,0.15)' }}>
-                  ✨
-                </div>
-                <div>
-                  <span className="text-emerald-300 font-bold text-sm">Enhanced Prompt</span>
-                  {coachAnalysis && (
-                    <span className={`ml-3 text-xs font-mono px-2 py-0.5 rounded-full border ${scoreBg} ${scoreColor}`}>
-                      {Math.round((coachAnalysis.completenessScore ?? 0) * 100)}% → enriched
-                    </span>
-                  )}
-                </div>
+          <div style={{
+            borderRadius: 12, overflow: 'hidden',
+            background: 'linear-gradient(145deg, rgba(16,185,129,0.05), rgba(8,15,30,0.8))',
+            border: '1px solid rgba(16,185,129,0.2)',
+            boxShadow: '0 8px 32px rgba(16,185,129,0.04)',
+          }}>
+            <div style={{
+              padding: '12px 20px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              borderBottom: '1px solid rgba(16,185,129,0.12)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.12)', fontSize: 14 }}>✨</div>
+                <span style={{ fontWeight: 700, fontSize: 13, color: '#6ee7b7' }}>Enhanced Prompt</span>
+                {coachAnalysis && (
+                  <span style={{
+                    fontSize: 11, fontFamily: 'monospace', color: scoreColor,
+                    padding: '2px 10px', borderRadius: 20,
+                    background: `${scoreColor}15`, border: `1px solid ${scoreColor}30`,
+                  }}>
+                    {Math.round(score * 100)}% → enriched
+                  </span>
+                )}
               </div>
               <button
                 onClick={() => setEditingEnriched(!editingEnriched)}
-                className="text-xs text-slate-400 hover:text-cyan-300 transition-colors font-medium px-3 py-1.5 rounded-lg"
-                style={{ background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.4)' }}
+                style={{
+                  fontSize: 11, color: '#94a3b8', fontWeight: 600, cursor: 'pointer',
+                  padding: '4px 12px', borderRadius: 8,
+                  background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.35)',
+                }}
               >
                 {editingEnriched ? '👁 Preview' : '✏️ Edit'}
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
               {editingEnriched ? (
                 <textarea
-                  className="w-full rounded-lg text-white text-sm p-4 resize-none focus:outline-none transition-all font-mono"
-                  style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(51,65,85,0.5)', lineHeight: 1.6 }}
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(51,65,85,0.5)',
+                    borderRadius: 10, color: '#f1f5f9', fontSize: 13,
+                    padding: 14, resize: 'none', outline: 'none',
+                    fontFamily: 'monospace', lineHeight: 1.6,
+                  }}
                   rows={12}
                   value={enrichedPrompt}
                   onChange={(e) => setEnrichedPrompt(e.target.value)}
                 />
               ) : (
-                <div className="rounded-lg p-4 max-h-64 overflow-y-auto" style={{ background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.3)' }}>
-                  <pre className="text-slate-200 text-sm whitespace-pre-wrap font-sans leading-relaxed">
+                <div style={{
+                  background: 'rgba(15,23,42,0.3)', border: '1px solid rgba(51,65,85,0.25)',
+                  borderRadius: 10, padding: 16, maxHeight: 260, overflowY: 'auto',
+                }}>
+                  <pre style={{ margin: 0, color: '#e2e8f0', fontSize: 13, whiteSpace: 'pre-wrap', fontFamily: 'inherit', lineHeight: 1.6 }}>
                     {enrichedPrompt}
                   </pre>
                 </div>
@@ -747,14 +691,15 @@ export default function CommandInterface() {
 
               {assumptions.length > 0 && (
                 <div>
-                  <p className="text-[10px] text-slate-500 mb-2 uppercase tracking-widest font-semibold">Assumptions made</p>
-                  <div className="flex flex-wrap gap-2">
+                  <p style={{ margin: '0 0 8px', fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                    Assumptions made
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {assumptions.map((a, i) => (
-                      <span
-                        key={i}
-                        className="text-xs rounded-full px-3 py-1 font-medium"
-                        style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24' }}
-                      >
+                      <span key={i} style={{
+                        fontSize: 11, borderRadius: 20, padding: '3px 12px', fontWeight: 600,
+                        background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24',
+                      }}>
                         {a}
                       </span>
                     ))}
@@ -762,28 +707,20 @@ export default function CommandInterface() {
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
+              <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
                 <button
                   onClick={handleApproveEnriched}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm transition-all duration-200"
-                  style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', boxShadow: '0 4px 15px rgba(245,158,11,0.25)' }}
+                  style={{
+                    flex: 1, padding: '11px 16px', borderRadius: 12,
+                    fontWeight: 800, fontSize: 13, border: 'none',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a',
+                    boxShadow: '0 4px 16px rgba(245,158,11,0.25)', cursor: 'pointer',
+                  }}
                 >
                   ✅ Approve & Run Pipeline
                 </button>
-                <button
-                  onClick={() => runPipeline(prompt.trim())}
-                  className="px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white transition-all"
-                  style={{ background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.4)' }}
-                >
-                  Skip → Original
-                </button>
-                <button
-                  onClick={() => { setStatus('idle'); setCoachAnalysis(null); setEnrichedPrompt('') }}
-                  className="px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-white transition-all"
-                  style={{ background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(51,65,85,0.4)' }}
-                >
-                  Cancel
-                </button>
+                <button onClick={() => runPipeline(prompt.trim())} style={secondaryBtnStyle}>Skip → Original</button>
+                <button onClick={() => { setStatus('idle'); setCoachAnalysis(null); setEnrichedPrompt('') }} style={secondaryBtnStyle}>Cancel</button>
               </div>
             </div>
           </div>
@@ -793,43 +730,41 @@ export default function CommandInterface() {
         {/*  Execution log                                                */}
         {/* ============================================================ */}
         {logs.length > 0 && (
-          <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(2,6,23,0.8)', border: '1px solid rgba(30,41,59,0.5)' }}>
-            <div className="px-5 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }}>
-              <div className="flex items-center gap-2">
-                <svg style={{ width: 14, height: 14, color: '#64748b' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">Execution Log</span>
-              </div>
+          <div style={{
+            borderRadius: 12, overflow: 'hidden',
+            background: 'rgba(2,6,23,0.75)',
+            border: '1px solid rgba(30,41,59,0.45)',
+          }}>
+            <div style={{
+              padding: '10px 18px',
+              display: 'flex', alignItems: 'center', gap: 10,
+              borderBottom: '1px solid rgba(30,41,59,0.4)',
+            }}>
+              <svg style={{ width: 14, height: 14, display: 'block', color: '#475569' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span style={{ fontSize: 10, color: '#475569', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Execution Log
+              </span>
               {isRunning && (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                </span>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', animation: 'pulse 1.5s infinite' }} />
               )}
-              <span className="ml-auto text-[10px] text-slate-600 font-mono">{logs.length} events</span>
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#334155', fontFamily: 'monospace' }}>{logs.length} events</span>
             </div>
-            <div className="h-60 overflow-y-auto p-4 space-y-0.5 font-mono text-xs">
+            <div style={{ height: 240, overflowY: 'auto', padding: 16, fontFamily: 'monospace', fontSize: 12 }}>
               {logs.map((entry, i) => (
-                <div key={i} className="flex gap-3 leading-relaxed py-0.5">
-                  <span className="text-slate-600 shrink-0 select-none">{entry.timestamp}</span>
-                  <span
-                    className={
-                      entry.type === 'error'
-                        ? 'text-rose-400'
-                        : entry.type === 'done'
-                          ? 'text-emerald-400 font-semibold'
-                          : entry.type === 'phase'
-                            ? 'text-amber-400'
-                            : entry.type === 'agent_start'
-                              ? (AGENT_COLORS[entry.agent ?? ''] ?? 'text-cyan-400')
-                              : entry.type === 'agent_done'
-                                ? 'text-emerald-300'
-                                : entry.type === 'pr_created' || entry.type === 'plan_saved'
-                                  ? 'text-emerald-400'
-                                  : 'text-slate-300'
-                    }
-                  >
+                <div key={i} style={{ display: 'flex', gap: 12, lineHeight: 1.7, padding: '1px 0' }}>
+                  <span style={{ color: '#334155', flexShrink: 0, userSelect: 'none' }}>{entry.timestamp}</span>
+                  <span style={{
+                    color: entry.type === 'error' ? '#f87171'
+                      : entry.type === 'done' ? '#34d399'
+                      : entry.type === 'phase' ? '#fbbf24'
+                      : entry.type === 'agent_start' ? (AGENT_COLORS[entry.agent ?? ''] ?? '#22d3ee')
+                      : entry.type === 'agent_done' ? '#6ee7b7'
+                      : (entry.type === 'pr_created' || entry.type === 'plan_saved') ? '#34d399'
+                      : '#cbd5e1',
+                    fontWeight: entry.type === 'done' ? 700 : 400,
+                  }}>
                     {entry.text}
                   </span>
                 </div>
@@ -843,56 +778,67 @@ export default function CommandInterface() {
         {/*  Result card                                                  */}
         {/* ============================================================ */}
         {status === 'done' && result && (
-          <div className="rounded-xl p-5" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(15,23,42,0.6))', border: '1px solid rgba(16,185,129,0.2)', boxShadow: '0 8px 32px rgba(16,185,129,0.05)' }}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style={{ background: 'rgba(16,185,129,0.15)' }}>
-                🎉
-              </div>
-              <span className="text-emerald-400 font-bold text-sm">Build Complete!</span>
+          <div style={{
+            borderRadius: 12, padding: 20,
+            background: 'linear-gradient(145deg, rgba(16,185,129,0.06), rgba(8,15,30,0.6))',
+            border: '1px solid rgba(16,185,129,0.2)',
+            boxShadow: '0 8px 32px rgba(16,185,129,0.04)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.12)', fontSize: 15 }}>🎉</div>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#34d399' }}>Build Complete!</span>
             </div>
-            <div className="space-y-2.5 pl-11">
+            <div style={{ paddingLeft: 44, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {result.projectId && (
-                <a
-                  href={`/projects/${result.projectId}`}
-                  className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm transition-colors"
-                >
+                <a href={`/projects/${result.projectId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#60a5fa', fontSize: 13, textDecoration: 'none' }}>
                   📁 View project #{result.projectId}
-                  <svg style={{ width: 12, height: 12 }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  <svg style={{ width: 12, height: 12, display: 'inline-block' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                 </a>
               )}
               {result.planId && (
-                <div className="text-slate-400 text-sm">💾 Agent Plan #{result.planId} saved</div>
+                <div style={{ color: '#64748b', fontSize: 13 }}>💾 Agent Plan #{result.planId} saved</div>
               )}
               {result.prUrl && (
-                <a
-                  href={result.prUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm transition-colors"
-                >
+                <a href={result.prUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#60a5fa', fontSize: 13, textDecoration: 'none' }}>
                   🔗 View PR on GitHub
-                  <svg style={{ width: 12, height: 12 }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  <svg style={{ width: 12, height: 12, display: 'inline-block' }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                 </a>
               )}
             </div>
           </div>
         )}
 
-        {/* ============================================================ */}
-        {/*  Error display                                                */}
-        {/* ============================================================ */}
+        {/* Error */}
         {status === 'error' && error && (
-          <div className="rounded-xl p-5" style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.08), rgba(15,23,42,0.6))', border: '1px solid rgba(239,68,68,0.2)' }}>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style={{ background: 'rgba(239,68,68,0.15)' }}>
-                ❌
-              </div>
-              <span className="text-rose-400 font-bold text-sm">Pipeline Error</span>
+          <div style={{
+            borderRadius: 12, padding: 20,
+            background: 'linear-gradient(145deg, rgba(239,68,68,0.06), rgba(8,15,30,0.6))',
+            border: '1px solid rgba(239,68,68,0.2)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,68,68,0.12)', fontSize: 15 }}>❌</div>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#f87171' }}>Pipeline Error</span>
             </div>
-            <p className="text-rose-300 text-sm font-mono break-all pl-11">{error}</p>
+            <p style={{ margin: 0, paddingLeft: 44, color: '#fca5a5', fontSize: 13, fontFamily: 'monospace', wordBreak: 'break-all' }}>{error}</p>
           </div>
         )}
       </div>
+
+      {/* Pulse animation keyframe */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   )
+}
+
+/* Shared button style for secondary actions */
+const secondaryBtnStyle: React.CSSProperties = {
+  padding: '11px 16px', borderRadius: 12,
+  fontSize: 13, fontWeight: 600, color: '#94a3b8',
+  background: 'rgba(15,23,42,0.3)', border: '1px solid rgba(51,65,85,0.35)',
+  cursor: 'pointer', transition: 'all 0.2s',
 }
