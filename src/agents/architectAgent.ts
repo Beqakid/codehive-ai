@@ -1,12 +1,11 @@
 /**
  * Architect Agent — Phase 2
- * Calls Anthropic Claude 3.7 Sonnet with streaming to produce an architecture design.
- * Uses native fetch — no additional packages required.
+ * Calls Anthropic Claude 3.7 Sonnet with extended thinking + streaming.
+ * Falls back to OpenAI gpt-4.1 if Anthropic is unavailable.
  */
 
 import type { RepoContext } from '../lib/github'
 
-// Legacy interface kept for type compatibility
 export interface ArchitectureDesign {
   overview: string
   components: Array<{
@@ -41,7 +40,6 @@ export async function runArchitectAgent(
 ): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
 
-  // Fall back to OpenAI gpt-4.1 if Anthropic key is unavailable
   if (!anthropicKey) {
     return runArchitectAgentOpenAI(input, onChunk)
   }
@@ -73,11 +71,16 @@ Design the technical architecture with:
     headers: {
       'x-api-key': anthropicKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'interleaved-thinking-2025-05-14',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       model: 'claude-3-7-sonnet-20250219',
-      max_tokens: 4000,
+      max_tokens: 16000,
+      thinking: {
+        type: 'enabled',
+        budget_tokens: 8000,
+      },
       stream: true,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
@@ -86,7 +89,6 @@ Design the technical architecture with:
 
   if (!response.ok || !response.body) {
     const err = await response.text()
-    // If Anthropic fails (e.g. no credits), fall back to OpenAI
     console.error(`Anthropic API error ${response.status}: ${err} — falling back to OpenAI gpt-4.1`)
     return runArchitectAgentOpenAI(input, onChunk)
   }
@@ -118,7 +120,17 @@ async function parseAnthropicStream(
       try {
         const json = JSON.parse(data) as {
           type?: string
-          delta?: { type?: string; text?: string }
+          delta?: { type?: string; text?: string; thinking?: string }
+          index?: number
+        }
+        // Stream thinking blocks as italic prefix so user sees Claude is reasoning
+        if (
+          json.type === 'content_block_delta' &&
+          json.delta?.type === 'thinking_delta' &&
+          json.delta?.thinking
+        ) {
+          // Don't stream raw thinking to UI — just accumulate silently
+          continue
         }
         if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
           const text = json.delta.text || ''

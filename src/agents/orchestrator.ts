@@ -4,12 +4,14 @@
  * Coordinates the agent pipeline with live SSE streaming:
  * 1. Load CodingRequest from Payload
  * 2. Fetch GitHub repo context
- * 3. Run Product Agent (OpenAI GPT-4o) → stream chunks
- * 4. Run Architect Agent (Anthropic Claude) → stream chunks
- * 5. Run Reviewer Agent (OpenAI GPT-4o) → stream chunks
+ * 3. Run Product Agent (OpenAI GPT-4.1) → stream chunks
+ * 4. Run Architect Agent (Anthropic Claude 3.7 Sonnet + extended thinking) → stream chunks
+ * 5. Run Reviewer Agent (Anthropic Claude 3.7 Sonnet) → stream chunks
  * 6. Save AgentRuns + AgentPlan to Payload
  * 7. Create GitHub branch + file + PR
  * 8. Update CodingRequest status
+ *
+ * Plan parser uses OpenAI o4-mini (reasoning model) for smart routing decisions.
  */
 
 import type { Payload } from 'payload'
@@ -35,6 +37,48 @@ export type SSEEvent =
   | { type: 'plan_saved'; planId: number }
   | { type: 'done' }
   | { type: 'error'; message: string }
+
+/**
+ * Uses OpenAI o4-mini (reasoning model) to decide if a review is approved.
+ * Much smarter than a simple string match — understands nuanced verdicts.
+ */
+async function parseReviewVerdict(reviewText: string): Promise<boolean> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    // Graceful fallback to simple heuristic
+    return reviewText.toLowerCase().includes('approved')
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'o4-mini',
+        messages: [
+          {
+            role: 'user',
+            content: `You are a plan evaluation assistant. Read the following technical review and determine if the overall verdict is APPROVED (ready to proceed) or NOT APPROVED (needs revision or rejected).\n\nRespond with ONLY the word: APPROVED or NOT_APPROVED\n\n---\n${reviewText.slice(0, 3000)}`,
+          },
+        ],
+        max_completion_tokens: 10,
+      }),
+    })
+
+    if (!response.ok) return reviewText.toLowerCase().includes('approved')
+
+    const json = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>
+    }
+    const verdict = json.choices?.[0]?.message?.content?.trim().toUpperCase() || ''
+    return verdict === 'APPROVED'
+  } catch {
+    return reviewText.toLowerCase().includes('approved')
+  }
+}
 
 export async function runOrchestrator(
   payload: Payload,
@@ -138,11 +182,11 @@ export async function runOrchestrator(
   }
   onEvent({ type: 'agent_done', agent: 'product' })
 
-  // 4. Architect Agent
+  // 4. Architect Agent (Claude 3.7 Sonnet + extended thinking)
   onEvent({
     type: 'agent_start',
     agent: 'architect',
-    message: '🏗️ Architect Agent designing system...',
+    message: '🏗️ Architect Agent designing system (extended thinking enabled)...',
   })
   const architectStart = Date.now()
 
@@ -190,7 +234,7 @@ export async function runOrchestrator(
   }
   onEvent({ type: 'agent_done', agent: 'architect' })
 
-  // 5. Reviewer Agent
+  // 5. Reviewer Agent (Claude 3.7 Sonnet)
   onEvent({
     type: 'agent_start',
     agent: 'reviewer',
@@ -237,8 +281,11 @@ export async function runOrchestrator(
   }
   onEvent({ type: 'agent_done', agent: 'reviewer' })
 
-  // 6. Save AgentPlan
-  const isApproved = reviewFeedback.toLowerCase().includes('approved')
+  // 6. Use o4-mini to parse review verdict intelligently
+  onEvent({ type: 'start', message: '🧠 o4-mini evaluating review verdict...' })
+  const isApproved = await parseReviewVerdict(reviewFeedback)
+
+  // 7. Save AgentPlan
   const agentPlan = await payload.create({
     collection: 'agent-plans',
     data: {
@@ -258,7 +305,7 @@ export async function runOrchestrator(
   })
   onEvent({ type: 'plan_saved', planId: agentPlan.id })
 
-  // 7. Create GitHub PR (optional — needs GITHUB_TOKEN)
+  // 8. Create GitHub PR (optional — needs GITHUB_TOKEN)
   if (parsedRepo && process.env.GITHUB_TOKEN) {
     try {
       onEvent({ type: 'start', message: '📝 Creating GitHub PR with agent plan...' })
@@ -314,7 +361,6 @@ ${reviewFeedback}
 
       onEvent({ type: 'pr_created', url: prUrl })
 
-      // Update finalPlan with PR URL
       await payload.update({
         collection: 'agent-plans',
         id: agentPlan.id,
@@ -333,7 +379,7 @@ ${reviewFeedback}
     }
   }
 
-  // 8. Update CodingRequest status
+  // 9. Update CodingRequest status
   await payload.update({
     collection: 'coding-requests',
     id: codingRequestId,
