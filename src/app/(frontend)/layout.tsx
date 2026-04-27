@@ -1,8 +1,6 @@
 import React from 'react'
-import { headers as getHeaders } from 'next/headers'
-import { getPayload } from 'payload'
+import { cookies } from 'next/headers'
 import Link from 'next/link'
-import config from '@/payload.config'
 import { LogoutButton } from '@/components/LogoutButton'
 import './styles.css'
 
@@ -11,13 +9,27 @@ export const metadata = {
   description: 'AI-powered code planning, generation, and testing platform',
 }
 
+/** Decode a JWT payload without verifying the signature (nav only — real auth happens per-request) */
+function decodeJwtEmail(token: string): string | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const payloadJson = Buffer.from(parts[1]!, 'base64url').toString('utf-8')
+    const payload = JSON.parse(payloadJson) as Record<string, unknown>
+    return typeof payload.email === 'string' ? payload.email : null
+  } catch {
+    return null
+  }
+}
+
 export default async function RootLayout(props: { children: React.ReactNode }) {
   const { children } = props
 
-  const headers = await getHeaders()
-  const payloadConfig = await config
-  const payload = await getPayload({ config: payloadConfig })
-  const { user } = await payload.auth({ headers })
+  // Read the auth cookie — no D1 / Payload call needed for the nav bar
+  const cookieStore = await cookies()
+  const token = cookieStore.get('payload-token')
+  const userEmail = token?.value ? decodeJwtEmail(token.value) : null
+  const isLoggedIn = !!userEmail
 
   return (
     <html lang="en">
@@ -38,7 +50,7 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
         >
           {/* Brand */}
           <Link
-            href={user ? '/projects' : '/'}
+            href={isLoggedIn ? '/projects' : '/'}
             style={{
               color: '#fff',
               textDecoration: 'none',
@@ -54,12 +66,12 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
 
           {/* Nav links + user */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            {user ? (
+            {isLoggedIn ? (
               <>
                 <NavLink href="/projects">Projects</NavLink>
                 <NavLink href="/dashboard">Dashboard</NavLink>
                 <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.82rem' }}>
-                  {user.email}
+                  {userEmail}
                 </span>
                 <LogoutButton />
               </>

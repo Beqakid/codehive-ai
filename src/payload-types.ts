@@ -74,6 +74,8 @@ export interface Config {
     'agent-plans': AgentPlan;
     'agent-runs': AgentRun;
     'tool-connections': ToolConnection;
+    commands: Command;
+    runs: Run;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -88,6 +90,8 @@ export interface Config {
     'agent-plans': AgentPlansSelect<false> | AgentPlansSelect<true>;
     'agent-runs': AgentRunsSelect<false> | AgentRunsSelect<true>;
     'tool-connections': ToolConnectionsSelect<false> | ToolConnectionsSelect<true>;
+    commands: CommandsSelect<false> | CommandsSelect<true>;
+    runs: RunsSelect<false> | RunsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -212,7 +216,7 @@ export interface AgentPlan {
   /**
    * Output from the Product Agent
    */
-  productSpec:
+  productSpec?:
     | {
         [k: string]: unknown;
       }
@@ -224,7 +228,7 @@ export interface AgentPlan {
   /**
    * Output from the Architect Agent
    */
-  architectureDesign:
+  architectureDesign?:
     | {
         [k: string]: unknown;
       }
@@ -236,7 +240,7 @@ export interface AgentPlan {
   /**
    * Output from the Reviewer Agent
    */
-  reviewFeedback:
+  reviewFeedback?:
     | {
         [k: string]: unknown;
       }
@@ -248,7 +252,7 @@ export interface AgentPlan {
   /**
    * Consolidated final plan
    */
-  finalPlan:
+  finalPlan?:
     | {
         [k: string]: unknown;
       }
@@ -329,6 +333,39 @@ export interface ToolConnection {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "commands".
+ */
+export interface Command {
+  id: number;
+  prompt: string;
+  mode: 'plan_only' | 'plan_code' | 'full_build';
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  project?: (number | null) | Project;
+  codingRequest?: (number | null) | CodingRequest;
+  submittedBy?: (number | null) | User;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "runs".
+ */
+export interface Run {
+  id: number;
+  command: number | Command;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  mode?: ('plan_only' | 'plan_code' | 'full_build') | null;
+  logs?: string | null;
+  prUrl?: string | null;
+  planId?: number | null;
+  error?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -351,34 +388,42 @@ export interface PayloadKv {
 export interface PayloadLockedDocument {
   id: number;
   document?:
-    | ({
+    | (({
         relationTo: 'users';
         value: number | User;
-      } | null)
-    | ({
+      } | null))
+    | (({
         relationTo: 'media';
         value: number | Media;
-      } | null)
-    | ({
+      } | null))
+    | (({
         relationTo: 'projects';
         value: number | Project;
-      } | null)
-    | ({
+      } | null))
+    | (({
         relationTo: 'coding-requests';
         value: number | CodingRequest;
-      } | null)
-    | ({
+      } | null))
+    | (({
         relationTo: 'agent-plans';
         value: number | AgentPlan;
-      } | null)
-    | ({
+      } | null))
+    | (({
         relationTo: 'agent-runs';
         value: number | AgentRun;
-      } | null)
-    | ({
+      } | null))
+    | (({
         relationTo: 'tool-connections';
         value: number | ToolConnection;
-      } | null);
+      } | null))
+    | (({
+        relationTo: 'commands';
+        value: number | Command;
+      } | null))
+    | (({
+        relationTo: 'runs';
+        value: number | Run;
+      } | null));
   globalSlug?: string | null;
   user: {
     relationTo: 'users';
@@ -526,6 +571,37 @@ export interface ToolConnectionsSelect<T extends boolean = true> {
   status?: T;
   config?: T;
   project?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "commands_select".
+ */
+export interface CommandsSelect<T extends boolean = true> {
+  prompt?: T;
+  mode?: T;
+  status?: T;
+  project?: T;
+  codingRequest?: T;
+  submittedBy?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "runs_select".
+ */
+export interface RunsSelect<T extends boolean = true> {
+  command?: T;
+  status?: T;
+  mode?: T;
+  logs?: T;
+  prUrl?: T;
+  planId?: T;
+  error?: T;
+  startedAt?: T;
+  completedAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }
