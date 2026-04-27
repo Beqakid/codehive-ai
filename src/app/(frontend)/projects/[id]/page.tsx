@@ -7,6 +7,7 @@ import config from '@/payload.config'
 import { CodeGenRunner } from '@/components/CodeGenRunner'
 import { SandboxRunner } from '@/components/SandboxRunner'
 import { FixRunner } from '@/components/FixRunner'
+import { ChatFixPanel } from '@/components/ChatFixPanel'
 import HiveBackground from '@/components/HiveBackground'
 import '../../styles.css'
 
@@ -112,6 +113,31 @@ export default async function ProjectDetailPage({
   const isApproved = latestPlan?.status === 'approved'
   const isNeedsRevision = latestPlan?.status === 'needs_revision'
   const latestPrUrl = latestPlan?.finalPlan?.prUrl ?? undefined
+
+  // Check for fix attempts needing human review
+  let showFixChat = false
+  let fixAttemptCount = 0
+  let latestErrorSummary = ''
+
+  if (latestPlan) {
+    try {
+      const faRes = await payload.find({
+        collection: 'fix-attempts',
+        where: { agentPlan: { equals: latestPlan.id } },
+        sort: '-attemptNumber',
+        limit: 10,
+        overrideAccess: true,
+      })
+      fixAttemptCount = faRes.docs.length
+      showFixChat = faRes.docs.some(
+        (a: any) => a.status === 'needs_human_review' || a.status === 'failed',
+      )
+      const failedDoc = faRes.docs.find((a: any) => a.errorSummary)
+      latestErrorSummary = ((failedDoc as any)?.errorSummary || '').slice(0, 200)
+    } catch {
+      // silently ignore
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#070d1a', position: 'relative' }}>
@@ -251,6 +277,17 @@ export default async function ProjectDetailPage({
                   </div>
                   {/* Run & Fix Until Stable — full width below the two runners */}
                   <FixRunner planId={latestPlan.id} prUrl={latestPrUrl} />
+                  {/* Interactive Fix Chat — appears when auto-fix fails */}
+                  {showFixChat && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <ChatFixPanel
+                        planId={latestPlan.id}
+                        projectName={project.name}
+                        fixAttemptCount={fixAttemptCount}
+                        latestError={latestErrorSummary}
+                      />
+                    </div>
+                  )}
                 </>
               ) : isNeedsRevision ? (
                 <div
