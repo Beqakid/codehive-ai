@@ -15,6 +15,8 @@ import { CodingRequests } from './collections/CodingRequests'
 import { AgentPlans } from './collections/AgentPlans'
 import { AgentRuns } from './collections/AgentRuns'
 import { ToolConnections } from './collections/ToolConnections'
+import { Commands } from './collections/Commands'
+import { Runs } from './collections/Runs'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -55,7 +57,17 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Projects, CodingRequests, AgentPlans, AgentRuns, ToolConnections],
+  collections: [
+    Users,
+    Media,
+    Projects,
+    CodingRequests,
+    AgentPlans,
+    AgentRuns,
+    ToolConnections,
+    Commands,
+    Runs,
+  ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {
