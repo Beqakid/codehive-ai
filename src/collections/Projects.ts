@@ -7,10 +7,10 @@ export const Projects: CollectionConfig = {
     useAsTitle: 'name',
   },
   access: {
-    create: adminOrAboveAccess,
+    create: anyLoggedInAccess,
     read: anyLoggedInAccess,
-    update: adminOrAboveAccess,
-    delete: superAdminAccess,
+    update: anyLoggedInAccess,
+    delete: adminOrAboveAccess,
   },
   fields: [
     {
@@ -36,7 +36,7 @@ export const Projects: CollectionConfig = {
       name: 'owner',
       type: 'relationship',
       relationTo: 'users',
-      required: true,
+      required: false,
     },
     {
       name: 'repoUrl',
