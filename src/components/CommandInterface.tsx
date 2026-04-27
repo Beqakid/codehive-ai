@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 
 type Mode = 'plan_only' | 'plan_code' | 'full_build'
-type RunStatus = 'idle' | 'creating' | 'streaming' | 'done' | 'error'
+type RunStatus = 'idle' | 'streaming' | 'done' | 'error'
 
 interface LogEntry {
   type: string
@@ -18,19 +18,19 @@ interface LogEntry {
 const MODES: { value: Mode; label: string; desc: string; color: string }[] = [
   {
     value: 'plan_only',
-    label: '📋 Plan Only',
-    desc: 'Run all 3 AI agents → generate plan + open PR',
+    label: '\ud83d\udccb Plan Only',
+    desc: 'Run all 3 AI agents \u2192 generate plan + open PR',
     color: 'border-blue-500 bg-blue-500/10 text-blue-300',
   },
   {
     value: 'plan_code',
-    label: '⚡ Plan + Code',
+    label: '\u26a1 Plan + Code',
     desc: 'Plan + generate all implementation files',
     color: 'border-purple-500 bg-purple-500/10 text-purple-300',
   },
   {
     value: 'full_build',
-    label: '🚀 Full Build',
+    label: '\ud83d\ude80 Full Build',
     desc: 'Plan + code + run sandbox tests automatically',
     color: 'border-amber-500 bg-amber-500/10 text-amber-300',
   },
@@ -65,66 +65,46 @@ export default function CommandInterface() {
   }
 
   const handleSubmit = async () => {
-    if (!prompt.trim() || status === 'streaming' || status === 'creating') return
+    if (!prompt.trim() || status === 'streaming') return
 
-    setStatus('creating')
+    setStatus('streaming')
     setLogs([])
     setResult(null)
     setError(null)
     setCurrentAgent(null)
 
+    const abort = new AbortController()
+    abortRef.current = abort
+
     try {
-      // Step 1: Create project + request + command + run
+      // Single request — returns SSE stream directly
       const res = await fetch('/api/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt: prompt.trim(), mode, projectName: projectName.trim() || undefined }),
-      })
-
-      if (!res.ok) {
-        const err = (await res.json()) as { error?: string }
-        throw new Error(err.error || `HTTP ${res.status}`)
-      }
-
-      const { commandId, runId, codingRequestId, projectId } = (await res.json()) as {
-        commandId: number
-        runId: number
-        codingRequestId: number
-        projectId: number
-      }
-
-      addLog({ type: 'start', text: `✅ Created project #${projectId} + coding request #${codingRequestId}` })
-      addLog({ type: 'start', text: `🔌 Starting ${mode.replace('_', ' ')} pipeline...` })
-
-      // Step 2: Open SSE stream
-      setStatus('streaming')
-      const abort = new AbortController()
-      abortRef.current = abort
-
-      const streamRes = await fetch('/api/command/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ commandId, runId, codingRequestId, mode }),
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          mode,
+          projectName: projectName.trim() || undefined,
+        }),
         signal: abort.signal,
       })
 
-      if (!streamRes.ok || !streamRes.body) {
-        // Read error body for better diagnostics
-        let errDetail = `HTTP ${streamRes.status}`
+      if (!res.ok || !res.body) {
+        let errDetail = `HTTP ${res.status}`
         try {
-          const errBody = await streamRes.json() as { error?: string }
+          const errBody = (await res.json()) as { error?: string }
           if (errBody.error) errDetail = errBody.error
         } catch {
-          // ignore parse error
+          // ignore
         }
-        throw new Error(`Stream failed: ${errDetail}`)
+        throw new Error(`Failed: ${errDetail}`)
       }
 
-      const reader = streamRes.body.getReader()
+      const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let currentProjectId: number | undefined
 
       while (true) {
         const { done, value } = await reader.read()
@@ -141,93 +121,117 @@ export default function CommandInterface() {
             const event = JSON.parse(line.slice(6)) as Record<string, unknown>
 
             switch (event.type) {
+              case 'created':
+                currentProjectId = event.projectId as number
+                addLog({
+                  type: 'start',
+                  text: `\u2705 Created project #${event.projectId} + coding request #${event.codingRequestId}`,
+                })
+                addLog({
+                  type: 'start',
+                  text: `\ud83d\udd0c Starting ${mode.replace('_', ' ')} pipeline...`,
+                })
+                break
               case 'start':
                 addLog({ type: 'start', text: String(event.message ?? '') })
                 break
               case 'phase':
-                addLog({ type: 'phase', text: String(event.message ?? ''), phase: String(event.phase ?? '') })
+                addLog({
+                  type: 'phase',
+                  text: String(event.message ?? ''),
+                  phase: String(event.phase ?? ''),
+                })
                 break
               case 'agent_start':
                 setCurrentAgent(String(event.agent ?? ''))
-                addLog({ type: 'agent_start', text: String(event.message ?? ''), agent: String(event.agent ?? '') })
+                addLog({
+                  type: 'agent_start',
+                  text: String(event.message ?? ''),
+                  agent: String(event.agent ?? ''),
+                })
                 break
               case 'agent_done':
-                addLog({ type: 'agent_done', text: `✅ ${event.agent} agent done`, agent: String(event.agent ?? '') })
+                addLog({
+                  type: 'agent_done',
+                  text: `\u2705 ${event.agent} agent done`,
+                  agent: String(event.agent ?? ''),
+                })
                 setCurrentAgent(null)
                 break
               case 'chunk':
-                // Aggregate chunks — don\'t add individual log entries
+                // Aggregate only — no individual log lines
                 break
               case 'github_context':
-                addLog({ type: 'github_context', text: `📂 Loaded ${event.files} repo files` })
+                addLog({ type: 'github_context', text: `\ud83d\udcc2 Loaded ${event.files} repo files` })
                 break
               case 'pr_created':
-                addLog({ type: 'pr_created', text: `🔗 PR created: ${event.url}` })
+                addLog({ type: 'pr_created', text: `\ud83d\udd17 PR created: ${event.url}` })
                 break
               case 'plan_saved':
-                addLog({ type: 'plan_saved', text: `💾 Plan #${event.planId} saved` })
+                addLog({ type: 'plan_saved', text: `\ud83d\udcbe Plan #${event.planId} saved` })
                 break
-              case 'file_committed':
-                addLog({ type: 'file_committed', text: `📄 Committed: ${event.file}` })
+              case 'file_done':
+                addLog({ type: 'file_committed', text: `\ud83d\udcc4 Committed: ${event.file}` })
                 break
               case 'sandbox_step':
-                addLog({ type: 'sandbox_step', text: `🧪 ${event.step}: ${event.status}` })
+                addLog({ type: 'sandbox_step', text: `\ud83e\uddea ${event.step}: ${event.status}` })
                 break
               case 'done':
                 setResult({
                   planId: event.planId as number | undefined,
                   prUrl: event.prUrl as string | undefined,
-                  projectId,
+                  projectId: currentProjectId,
                 })
                 setStatus('done')
-                addLog({ type: 'done', text: '🎉 Pipeline complete!' })
+                addLog({ type: 'done', text: '\ud83c\udf89 Pipeline complete!' })
                 break
               case 'error':
                 throw new Error(String(event.message ?? 'Unknown error'))
             }
           } catch (parseErr) {
-            if (String(parseErr).includes('Pipeline') || String(parseErr).includes('Error')) {
+            const msg = String(parseErr)
+            if (msg.includes('Error:') || msg.includes('failed') || msg.includes('Failed')) {
               throw parseErr
             }
-            // Ignore JSON parse errors from partial chunks
+            // ignore JSON parse noise
           }
         }
       }
 
       if (status !== 'done') setStatus('done')
     } catch (err) {
-      if (String(err).includes('AbortError')) return
+      if (String(err).includes('AbortError') || String(err).includes('abort')) return
       const msg = String(err)
       setError(msg)
       setStatus('error')
-      addLog({ type: 'error', text: `❌ ${msg}` })
+      addLog({ type: 'error', text: `\u274c ${msg}` })
     }
   }
 
   const handleStop = () => {
     abortRef.current?.abort()
     setStatus('idle')
-    addLog({ type: 'start', text: '⏹ Stopped by user' })
+    addLog({ type: 'start', text: '\u23f9 Stopped by user' })
   }
 
-  const isRunning = status === 'creating' || status === 'streaming'
+  const isRunning = status === 'streaming'
 
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden shadow-2xl">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-700 flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center text-sm">
-          ⌘
+          \u2318
         </div>
         <div>
           <h2 className="text-white font-semibold text-sm">Global Command Interface</h2>
-          <p className="text-gray-400 text-xs">Type a prompt → AI agents build it end-to-end</p>
+          <p className="text-gray-400 text-xs">Type a prompt \u2192 AI agents build it end-to-end</p>
         </div>
         {isRunning && (
           <div className="ml-auto flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             <span className="text-green-400 text-xs font-mono">
-              {currentAgent ? `${currentAgent} agent running…` : 'initializing…'}
+              {currentAgent ? `${currentAgent} agent running\u2026` : 'initializing\u2026'}
             </span>
           </div>
         )}
@@ -242,7 +246,7 @@ export default function CommandInterface() {
           <textarea
             className="w-full bg-gray-800 border border-gray-600 rounded-xl text-white text-sm p-4 resize-none focus:outline-none focus:border-yellow-500 transition-colors placeholder-gray-500"
             rows={4}
-            placeholder="e.g. Add user authentication with JWT tokens, refresh token rotation, and rate limiting…"
+            placeholder="e.g. Add user authentication with JWT tokens, refresh token rotation, and rate limiting\u2026"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             disabled={isRunning}
@@ -250,13 +254,14 @@ export default function CommandInterface() {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit()
             }}
           />
-          <p className="text-xs text-gray-600 mt-1">⌘ + Enter to submit</p>
+          <p className="text-xs text-gray-600 mt-1">\u2318 + Enter to submit</p>
         </div>
 
         {/* Optional project name */}
         <div>
           <label className="block text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
-            Project name <span className="text-gray-600">(optional — auto-generated if blank)</span>
+            Project name{' '}
+            <span className="text-gray-600">(optional \u2014 auto-generated if blank)</span>
           </label>
           <input
             type="text"
@@ -304,7 +309,7 @@ export default function CommandInterface() {
                   : 'bg-gray-700 text-gray-500 cursor-not-allowed'
             }`}
           >
-            {isRunning ? '⏹ Stop' : status === 'creating' ? 'Creating…' : '⌘ Run Command'}
+            {isRunning ? '\u23f9 Stop' : '\u2318 Run Command'}
           </button>
           {(status === 'done' || status === 'error') && (
             <button
@@ -343,7 +348,7 @@ export default function CommandInterface() {
                           : entry.type === 'phase'
                             ? 'text-yellow-400'
                             : entry.type === 'agent_start'
-                              ? AGENT_COLORS[entry.agent ?? ''] ?? 'text-cyan-400'
+                              ? (AGENT_COLORS[entry.agent ?? ''] ?? 'text-cyan-400')
                               : entry.type === 'agent_done'
                                 ? 'text-green-300'
                                 : entry.type === 'pr_created' || entry.type === 'plan_saved'
@@ -363,18 +368,18 @@ export default function CommandInterface() {
         {/* Result card */}
         {status === 'done' && result && (
           <div className="bg-green-950/40 border border-green-700/50 rounded-xl p-4">
-            <div className="text-green-400 font-semibold text-sm mb-3">🎉 Build Complete!</div>
+            <div className="text-green-400 font-semibold text-sm mb-3">\ud83c\udf89 Build Complete!</div>
             <div className="space-y-2">
               {result.projectId && (
                 <a
                   href={`/projects/${result.projectId}`}
                   className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm underline"
                 >
-                  📁 View project #{result.projectId}
+                  \ud83d\udcc1 View project #{result.projectId}
                 </a>
               )}
               {result.planId && (
-                <div className="text-gray-400 text-sm">💾 Agent Plan #{result.planId} saved</div>
+                <div className="text-gray-400 text-sm">\ud83d\udcbe Agent Plan #{result.planId} saved</div>
               )}
               {result.prUrl && (
                 <a
@@ -383,7 +388,7 @@ export default function CommandInterface() {
                   rel="noreferrer"
                   className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm underline"
                 >
-                  🔗 View PR on GitHub ↗
+                  \ud83d\udd17 View PR on GitHub \u2197
                 </a>
               )}
             </div>
@@ -393,7 +398,7 @@ export default function CommandInterface() {
         {/* Error */}
         {status === 'error' && error && (
           <div className="bg-red-950/40 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm font-mono break-all">
-            ❌ {error}
+            \u274c {error}
           </div>
         )}
       </div>
