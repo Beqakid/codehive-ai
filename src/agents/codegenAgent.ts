@@ -2,7 +2,7 @@
  * Codegen Agent — Phase 3
  *
  * Given a plan markdown and a specific file to generate,
- * produces implementation code using GPT-4o-mini streaming.
+ * produces implementation code using GPT-4.1 streaming.
  * Also provides parsePlanForFiles() to extract the file list from a plan.
  */
 
@@ -28,7 +28,7 @@ export async function runCodegenAgent(
 **Purpose:** ${input.fileDescription}
 
 ## Full Agent Plan
-${input.planMarkdown.substring(0, 5000)}
+${input.planMarkdown.substring(0, 6000)}
 
 Output only the complete file contents for ${input.filePath}. No markdown fences. No explanations.`
 
@@ -39,13 +39,13 @@ Output only the complete file contents for ${input.filePath}. No markdown fences
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       stream: true,
-      max_tokens: 2000,
+      max_tokens: 4000,
     }),
   })
 
@@ -57,7 +57,7 @@ Output only the complete file contents for ${input.filePath}. No markdown fences
   return parseOpenAIStream(response.body, onChunk)
 }
 
-/** Ask GPT-4o-mini to extract the list of files from the plan markdown. */
+/** Ask GPT-4.1-mini to extract the list of files from the plan markdown. */
 export async function parsePlanForFiles(
   planMarkdown: string,
 ): Promise<Array<{ path: string; description: string }>> {
@@ -79,13 +79,13 @@ ${planMarkdown.substring(0, 4000)}`
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       stream: false,
-      max_tokens: 800,
+      max_tokens: 1000,
       response_format: { type: 'json_object' },
     }),
   })

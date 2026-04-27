@@ -1,6 +1,6 @@
 /**
  * Reviewer Agent — Phase 2
- * Calls OpenAI GPT-4o with streaming to review and critique the plan.
+ * Calls OpenAI GPT-4.1 with streaming to review and critique the plan.
  * Uses native fetch — no additional packages required.
  */
 
@@ -59,13 +59,13 @@ Review this plan and provide:
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       stream: true,
-      max_tokens: 1000,
+      max_tokens: 2000,
     }),
   })
 

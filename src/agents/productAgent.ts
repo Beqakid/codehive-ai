@@ -1,6 +1,6 @@
 /**
  * Product Agent — Phase 2
- * Calls OpenAI GPT-4o with streaming to produce a product specification.
+ * Calls OpenAI GPT-4.1 with streaming to produce a product specification.
  * Uses native fetch — no additional packages required.
  */
 
@@ -58,13 +58,13 @@ Write a product specification including:
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       stream: true,
-      max_tokens: 1200,
+      max_tokens: 2000,
     }),
   })
 
