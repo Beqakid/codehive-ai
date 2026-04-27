@@ -27,6 +27,7 @@ interface AgentPlanDoc {
   architecturePlan?: string
   reviewNotes?: string
   prUrl?: string
+  finalPlan?: Record<string, unknown>
   createdAt?: string
 }
 
@@ -35,6 +36,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   planning: { label: 'Planning', color: '#fbbf24', bg: 'rgba(245,158,11,0.12)', dot: '#f59e0b' },
   submitted: { label: 'Submitted', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', dot: '#3b82f6' },
   approved: { label: 'Approved', color: '#c084fc', bg: 'rgba(192,132,252,0.12)', dot: '#a855f7' },
+  draft: { label: 'Draft', color: '#94a3b8', bg: 'rgba(71,85,105,0.12)', dot: '#475569' },
   archived: { label: 'Archived', color: '#475569', bg: 'rgba(71,85,105,0.12)', dot: '#334155' },
 }
 
@@ -83,6 +85,7 @@ export default async function ProjectDetailPage({
 
   const cfg = getStatusCfg(project.status)
   const latestPlan = plans[0] ?? null
+  const isApproved = latestPlan?.status === 'approved'
 
   return (
     <div style={{ minHeight: '100vh', background: '#070d1a', position: 'relative' }}>
@@ -167,7 +170,7 @@ export default async function ProjectDetailPage({
         {/* Main content */}
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
-          {/* AI Runners — only show when a plan exists */}
+          {/* AI Runners — only show when a plan is APPROVED */}
           {latestPlan && (
             <div
               style={{
@@ -181,15 +184,58 @@ export default async function ProjectDetailPage({
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
                 <div style={{ width: 3, height: 18, borderRadius: 9999, background: 'linear-gradient(to bottom, #f59e0b, #d97706)' }} />
                 <span style={{ color: '#94a3b8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>AI Runners — Plan #{latestPlan.id}</span>
+                <span
+                  style={{
+                    fontSize: '0.65rem',
+                    padding: '2px 8px',
+                    borderRadius: 9999,
+                    background: getStatusCfg(latestPlan.status).bg,
+                    color: getStatusCfg(latestPlan.status).color,
+                    fontWeight: 700,
+                    border: `1px solid ${getStatusCfg(latestPlan.status).dot}40`,
+                  }}
+                >
+                  {getStatusCfg(latestPlan.status).label}
+                </span>
               </div>
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 280 }}>
-                  <CodeGenRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+
+              {isApproved ? (
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 280 }}>
+                    <CodeGenRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 280 }}>
+                    <SandboxRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+                  </div>
                 </div>
-                <div style={{ flex: 1, minWidth: 280 }}>
-                  <SandboxRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+              ) : (
+                <div
+                  style={{
+                    padding: '1.25rem',
+                    background: 'rgba(245,158,11,0.07)',
+                    border: '1px solid rgba(245,158,11,0.25)',
+                    borderRadius: 10,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '1rem',
+                  }}
+                >
+                  <div>
+                    <div style={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+                      ⏳ Plan not yet approved
+                    </div>
+                    <div style={{ color: '#64748b', fontSize: '0.78rem' }}>
+                      This plan is in <strong style={{ color: '#94a3b8' }}>{latestPlan.status}</strong> status.
+                      It must be approved before code generation can run.
+                      Use the <strong style={{ color: '#94a3b8' }}>Dashboard → Command Interface</strong> to run the full agent pipeline,
+                      or approve this plan manually below.
+                    </div>
+                  </div>
+                  <ApprovePlanButton planId={latestPlan.id} />
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -327,5 +373,30 @@ export default async function ProjectDetailPage({
         </div>
       </div>
     </div>
+  )
+}
+
+// Inline client component for approve button
+function ApprovePlanButton({ planId }: { planId: number }) {
+  // We use a form action to handle this server-side via a separate API route
+  return (
+    <form action={`/api/plans/${planId}/approve`} method="POST">
+      <button
+        type="submit"
+        style={{
+          padding: '0.5rem 1.2rem',
+          background: 'linear-gradient(135deg, #d97706, #f59e0b)',
+          color: '#000',
+          border: 'none',
+          borderRadius: 8,
+          cursor: 'pointer',
+          fontSize: '0.82rem',
+          fontWeight: 700,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        ✅ Approve Plan
+      </button>
+    </form>
   )
 }
