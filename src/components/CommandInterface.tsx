@@ -533,8 +533,8 @@ export default function CommandInterface() {
                     }}
                   >
                     {active && (
-                      <div className="absolute top-2 right-2.5">
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style={{ color: m.value === 'plan_only' ? '#60a5fa' : m.value === 'plan_code' ? '#a78bfa' : '#fbbf24' }}>
+                      <div style={{ position: 'absolute', top: 8, right: 10 }}>
+                        <svg style={{ width: 14, height: 14, color: m.value === 'plan_only' ? '#60a5fa' : m.value === 'plan_code' ? '#a78bfa' : '#fbbf24' }} fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                       </div>
@@ -796,7 +796,7 @@ export default function CommandInterface() {
           <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(2,6,23,0.8)', border: '1px solid rgba(30,41,59,0.5)' }}>
             <div className="px-5 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(30,41,59,0.5)' }}>
               <div className="flex items-center gap-2">
-                <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg style={{ width: 14, height: 14, color: '#64748b' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">Execution Log</span>
@@ -857,7 +857,7 @@ export default function CommandInterface() {
                   className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm transition-colors"
                 >
                   📁 View project #{result.projectId}
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  <svg style={{ width: 12, height: 12 }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                 </a>
               )}
               {result.planId && (
@@ -871,7 +871,7 @@ export default function CommandInterface() {
                   className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm transition-colors"
                 >
                   🔗 View PR on GitHub
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  <svg style={{ width: 12, height: 12 }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                 </a>
               )}
             </div>
