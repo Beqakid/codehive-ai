@@ -36,7 +36,7 @@ export default function SignupPage() {
         return
       }
 
-      window.location.href = '/projects'
+      window.location.href = '/dashboard'
     } catch {
       setError('Something went wrong. Please try again.')
       setLoading(false)
@@ -55,21 +55,23 @@ export default function SignupPage() {
     >
       <div
         style={{
-          background: '#fff',
-          border: '1px solid #e5e7eb',
-          borderRadius: 12,
+          background: 'rgba(15, 23, 42, 0.6)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          border: '1px solid rgba(245, 158, 11, 0.15)',
+          borderRadius: 16,
           padding: '2.5rem',
           width: '100%',
           maxWidth: 420,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
         }}
       >
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🐝</div>
-          <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, color: '#0f172a' }}>
+          <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, color: '#f1f5f9' }}>
             Create your account
           </h1>
-          <p style={{ margin: '0.5rem 0 0', color: '#6b7280', fontSize: '0.9rem' }}>
+          <p style={{ margin: '0.5rem 0 0', color: '#94a3b8', fontSize: '0.9rem' }}>
             Join CodeHive AI — free to get started
           </p>
         </div>
@@ -107,7 +109,7 @@ export default function SignupPage() {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               required
-              placeholder="••••••••"
+              placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
               style={inputStyle}
             />
           </div>
@@ -115,11 +117,11 @@ export default function SignupPage() {
           {error && (
             <div
               style={{
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: 6,
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: 8,
                 padding: '0.6rem 0.9rem',
-                color: '#991b1b',
+                color: '#fca5a5',
                 fontSize: '0.85rem',
                 marginBottom: '1rem',
               }}
@@ -129,13 +131,13 @@ export default function SignupPage() {
           )}
 
           <button type="submit" disabled={loading} style={btnStyle}>
-            {loading ? 'Creating account…' : 'Create account'}
+            {loading ? 'Creating account\u2026' : 'Create account \u2192'}
           </button>
         </form>
 
-        <p style={{ margin: '1.5rem 0 0', textAlign: 'center', fontSize: '0.85rem', color: '#6b7280' }}>
+        <p style={{ margin: '1.5rem 0 0', textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8' }}>
           Already have an account?{' '}
-          <Link href="/login" style={{ color: '#10b981', fontWeight: 600, textDecoration: 'none' }}>
+          <Link href="/login" style={{ color: '#f59e0b', fontWeight: 600, textDecoration: 'none' }}>
             Sign in
           </Link>
         </p>
@@ -148,29 +150,32 @@ const labelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: '0.85rem',
   fontWeight: 600,
-  color: '#374151',
+  color: '#cbd5e1',
   marginBottom: '0.4rem',
 }
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '0.6rem 0.85rem',
-  border: '1px solid #d1d5db',
-  borderRadius: 6,
+  background: 'rgba(30, 41, 59, 0.8)',
+  border: '1px solid rgba(148, 163, 184, 0.2)',
+  borderRadius: 8,
   fontSize: '0.95rem',
-  color: '#0f172a',
+  color: '#f1f5f9',
   outline: 'none',
   boxSizing: 'border-box',
+  transition: 'border-color 0.2s',
 }
 
 const btnStyle: React.CSSProperties = {
   width: '100%',
   padding: '0.7rem',
-  background: '#0f172a',
-  color: '#fff',
+  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+  color: '#0f172a',
   border: 'none',
-  borderRadius: 6,
+  borderRadius: 8,
   fontSize: '0.95rem',
-  fontWeight: 600,
+  fontWeight: 700,
   cursor: 'pointer',
+  transition: 'opacity 0.2s',
 }

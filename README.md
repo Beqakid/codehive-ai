@@ -1,119 +1,277 @@
-# Payload Cloudflare Template
+# 🐝 CodeHive AI — Coding Command Center
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/payloadcms/payload/tree/main/templates/with-cloudflare-d1)
+An AI-powered coding platform that transforms natural language prompts into production-ready code. Built on **Payload CMS**, deployed on **Cloudflare Workers** with **D1** (SQLite) and **R2** (media storage).
 
-**This can only be deployed on Paid Workers right now due to size limits.** This template comes configured with the bare minimum to get started on anything you need.
+> _Type a prompt → AI agents plan, code, and test it end-to-end._
 
-## Quick start
+![Platform](https://img.shields.io/badge/Platform-Cloudflare%20Workers-orange)
+![Framework](https://img.shields.io/badge/Framework-Next.js%2015-black)
+![CMS](https://img.shields.io/badge/CMS-Payload%203-blue)
+![AI](https://img.shields.io/badge/AI-GPT--4.1%20%7C%20Claude%20Sonnet%204-green)
 
-This template can be deployed directly to Cloudflare Workers by clicking the button to take you to the setup screen.
+---
 
-From there you can connect your code to a git provider such Github or Gitlab, name your Workers, D1 Database and R2 Bucket as well as attach any additional environment variables or services you need.
+## ✨ Features
 
-## Quick Start - local setup
+- **🤖 Multi-Agent AI Pipeline** — 5 specialized AI agents collaborate to plan, review, generate code, and run tests
+- **📡 Real-Time SSE Streaming** — Watch agents think and code in real time via Server-Sent Events
+- **⚡ Code Generation** — AI generates complete file trees from architectural plans
+- **🧪 Sandbox Testing** — GitHub Actions integration for automated test execution
+- **📊 Parallel Runs Dashboard** — Send the same prompt to multiple projects simultaneously
+- **🔐 User Auth** — Cookie-based authentication with signup/login/logout
+- **🌙 Dark Theme** — Glassmorphism UI with animated honeycomb background
 
-To spin up this template locally, follow these steps:
+---
 
-### Clone
+## 🏗️ Architecture
 
-After you click the `Deploy` button above, you'll want to have standalone copy of this repo on your machine. Cloudflare will connect your app to a git provider such as Github and you can access your code from there.
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Cloudflare Workers                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐               │
+│  │ Next.js  │  │ Payload  │  │   API    │               │
+│  │   SSR    │  │   CMS    │  │  Routes  │               │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘               │
+│       │              │             │                      │
+│       │         ┌────┴─────┐  ┌────┴──────┐              │
+│       │         │  D1 DB   │  │ R2 Bucket │              │
+│       │         │ (SQLite) │  │  (Media)  │              │
+│       │         └──────────┘  └───────────┘              │
+│       │                                                   │
+│  ┌────┴──────────────────────────────────┐               │
+│  │          AI Agent Pipeline            │               │
+│  │                                       │               │
+│  │  📋 Product → 🏗️ Architect → 🔎 Review │               │
+│  │       │            │            │      │               │
+│  │       └────────────┴────────────┘      │               │
+│  │                    │                   │               │
+│  │              🎯 Verdict (o4-mini)      │               │
+│  │                    │                   │               │
+│  │         💻 Code Generation (GPT-4.1)   │               │
+│  │                    │                   │               │
+│  │         🧪 Sandbox (GitHub Actions)    │               │
+│  └────────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────┘
+                         │
+                    ┌────┴─────┐
+                    │  GitHub  │
+                    │  (PRs)   │
+                    └──────────┘
+```
 
-### Local Development
+---
 
-## How it works
+## 🤖 AI Agent Roster
 
-Out of the box, using [`Wrangler`](https://developers.cloudflare.com/workers/wrangler/) will automatically create local bindings for you to connect to the remote services and it can even create a local mock of the services you're using with Cloudflare.
+| Agent | Model | Role |
+|-------|-------|------|
+| 📋 **Product Agent** | `gpt-4.1` | Transforms prompts into structured product specifications |
+| 🏗️ **Architect Agent** | `claude-sonnet-4-6` | Creates detailed technical plans with extended thinking (8K budget) |
+| 🔎 **Reviewer Agent** | `claude-sonnet-4-6` | Reviews and scores plans on a 1-10 scale |
+| 🎯 **Verdict** | `o4-mini` | Reasoning model that makes approve/revise decisions |
+| 💻 **Codegen Agent** | `gpt-4.1` | Generates production code file-by-file from plans |
+| 📄 **Plan Parser** | `gpt-4.1-mini` | Extracts structured data from agent outputs |
+| 🧪 **Sandbox Agent** | — | Triggers and monitors GitHub Actions test workflows |
 
-We've pre-configured Payload for you with the following:
+---
 
-### Collections
+## 📁 Project Structure
 
-See the [Collections](https://payloadcms.com/docs/configuration/collections) docs for details on how to extend this functionality.
+```
+src/
+├── access/                    # Row-level access control
+│   └── roles.ts               # ownerOrAdmin, anyLoggedIn helpers
+├── agents/                    # AI agent implementations
+│   ├── orchestrator.ts        # Main pipeline orchestrator (SSE events)
+│   ├── productAgent.ts        # Product specification agent
+│   ├── architectAgent.ts      # Architecture planning agent
+│   ├── reviewerAgent.ts       # Code review agent
+│   ├── codegenAgent.ts        # Code generation agent
+│   ├── codeOrchestrator.ts    # Code generation pipeline
+│   └── sandboxAgent.ts        # GitHub Actions sandbox runner
+├── app/(frontend)/            # Next.js frontend
+│   ├── page.tsx               # Landing page
+│   ├── layout.tsx             # Auth-aware layout with nav
+│   ├── styles.css             # Global dark theme styles
+│   ├── login/page.tsx         # Login page
+│   ├── signup/page.tsx        # Signup page
+│   ├── dashboard/page.tsx     # Command Center dashboard
+│   ├── projects/              # Projects CRUD
+│   │   ├── page.tsx           # Projects list
+│   │   ├── new/page.tsx       # Create project
+│   │   └── [id]/page.tsx      # Project detail + plans
+│   └── api/                   # API routes
+│       ├── command/route.ts   # ⭐ Main SSE endpoint
+│       ├── auth/              # Login, logout, signup
+│       ├── projects/          # Project CRUD
+│       ├── plans/             # Plan approval
+│       ├── generate-code/     # Code generation trigger
+│       └── sandbox/           # Sandbox test trigger
+├── collections/               # Payload CMS collections
+│   ├── Users.ts               # Auth-enabled users
+│   ├── Projects.ts            # User projects
+│   ├── CodingRequests.ts      # Prompt submissions
+│   ├── AgentPlans.ts          # Generated plans
+│   ├── AgentRuns.ts           # Agent execution logs
+│   ├── Commands.ts            # Command tracking
+│   ├── Runs.ts                # Pipeline run tracking
+│   ├── ToolConnections.ts     # External tool configs
+│   └── Media.ts               # R2-backed uploads
+├── components/                # React components
+│   ├── CommandInterface.tsx   # Global command input + SSE
+│   ├── ParallelDashboard.tsx  # Multi-project parallel runs
+│   ├── CodeGenRunner.tsx      # Code generation UI
+│   ├── SandboxRunner.tsx      # Sandbox test runner UI
+│   ├── ProjectCard.tsx        # Project card (client component)
+│   ├── HiveBackground.tsx     # Animated honeycomb SVG
+│   └── LogoutButton.tsx       # Auth logout button
+├── lib/                       # Shared utilities
+│   ├── github.ts              # GitHub API helpers
+│   ├── retry.ts               # Retry with exponential backoff
+│   └── stream-parsers.ts      # SSE stream parsing utilities
+├── migrations/                # D1 database migrations
+└── payload.config.ts          # Payload CMS configuration
+```
 
-- #### Users (Authentication)
+---
 
-  Users are auth-enabled collections that have access to the admin panel.
+## 🚀 How It Works
 
-  For additional help, see the official [Auth Example](https://github.com/payloadcms/payload/tree/main/examples/auth) or the [Authentication](https://payloadcms.com/docs/authentication/overview#authentication-overview) docs.
+### 1. Submit a Prompt
+Type a natural language coding request in the **Command Interface**:
+> _"Add user authentication with JWT tokens, refresh token rotation, and rate limiting"_
 
-- #### Media
+### 2. AI Agents Plan
+Three agents collaborate in parallel:
+- **Product Agent** creates a detailed spec
+- **Architect Agent** designs the file structure and implementation plan
+- **Reviewer Agent** scores quality and flags issues
 
-  This is the uploads enabled collection.
+The **Verdict** model (o4-mini) decides: approve or revise.
 
-### Image Storage (R2)
+### 3. Plan Review
+A PR is created on GitHub with the full plan. You can review agent outputs on the project detail page and **approve** when ready.
 
-Images will be served from an R2 bucket which you can then further configure to use a CDN to serve for your frontend directly.
+### 4. Code Generation
+Click **⚡ Generate Code** — the Codegen Agent (GPT-4.1) generates every file in the plan and pushes them to the PR branch.
 
-### D1 Database
+### 5. Sandbox Testing
+Click **🧪 Run Sandbox** — triggers a GitHub Actions workflow that installs dependencies and runs tests on the generated code.
 
-The Worker will have direct access to a D1 SQLite database which Wrangler can connect locally to, just note that you won't have a connection string as you would typically with other providers.
+---
 
-You can enable read replicas by adding `readReplicas: 'first-primary'` in the DB adapter and then enabling it on your D1 Cloudflare dashboard. Read more about this feature on [our docs](https://payloadcms.com/docs/database/sqlite#d1-read-replicas).
+## 🔧 Tech Stack
 
-## Working with Cloudflare
+| Layer | Technology |
+|-------|------------|
+| **Runtime** | Cloudflare Workers |
+| **Framework** | Next.js 15 (App Router) |
+| **CMS** | Payload CMS 3 |
+| **Database** | Cloudflare D1 (SQLite) |
+| **Storage** | Cloudflare R2 |
+| **AI Models** | OpenAI GPT-4.1, Claude Sonnet 4, o4-mini |
+| **CI/CD** | GitHub Actions |
+| **Language** | TypeScript |
 
-Firstly, after installing dependencies locally you need to authenticate with Wrangler by running:
+---
+
+## 🔑 Environment Variables
+
+Set these as Cloudflare Worker secrets:
+
+| Variable | Description |
+|----------|-------------|
+| `PAYLOAD_SECRET` | Payload CMS encryption key |
+| `OPENAI_API_KEY` | OpenAI API key (GPT-4.1, o4-mini) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude Sonnet 4) |
+| `GITHUB_TOKEN` | GitHub PAT with `repo` scope |
+
+---
+
+## 📡 API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/command` | Main SSE endpoint — runs full agent pipeline |
+| `POST` | `/api/auth/login` | User login (cookie-based) |
+| `POST` | `/api/auth/signup` | User registration |
+| `POST` | `/api/auth/logout` | User logout |
+| `GET/POST` | `/api/projects` | List / create projects |
+| `POST` | `/api/plans/[planId]/approve` | Approve a plan for code generation |
+| `POST` | `/api/generate-code` | Trigger code generation on approved plan |
+| `POST` | `/api/sandbox` | Trigger sandbox test run |
+
+### SSE Event Protocol
+
+The `/api/command` endpoint streams events:
+
+```
+data: {"type":"created","commandId":1}
+data: {"type":"agent_start","agent":"product"}
+data: {"type":"chunk","agent":"product","text":"..."}
+data: {"type":"agent_done","agent":"product"}
+...
+data: {"type":"done","planId":1,"prUrl":"https://github.com/..."}
+```
+
+---
+
+## 🛠️ Development
+
+### Prerequisites
+- Node.js 20+
+- Cloudflare account (paid Workers plan)
+- GitHub account
+- OpenAI API key
+- Anthropic API key
+
+### Local Setup
 
 ```bash
+# Install dependencies
+pnpm install
+
+# Authenticate with Cloudflare
 pnpm wrangler login
+
+# Start local dev server (auto-binds D1 + R2)
+pnpm dev
 ```
 
-This will take you to Cloudflare to login and then you can use the Wrangler CLI locally for anything, use `pnpm wrangler help` to see all available options.
-
-Wrangler is pretty smart so it will automatically bind your services for local development just by running `pnpm dev`.
-
-## Deployments
-
-When you're ready to deploy, first make sure you have created your migrations:
+### Deployment
 
 ```bash
+# Create migrations
 pnpm payload migrate:create
-```
 
-Then run the following command:
-
-```bash
+# Deploy to Cloudflare Workers
 pnpm run deploy
 ```
 
-This will spin up Wrangler in `production` mode, run any created migrations, build the app and then deploy the bundle up to Cloudflare.
+Or push to `main` — GitHub Actions auto-deploys via CI/CD.
 
-That's it! You can if you wish move these steps into your CI pipeline as well.
+---
 
-## Enabling logs
+## 📋 Build Modes
 
-By default logs are not enabled for your API, we've made this decision because it does run against your quota so we've left it opt-in. But you can easily enable logs in one click in the Cloudflare panel, [see docs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#enable-workers-logs).
+| Mode | Description |
+|------|-------------|
+| **📋 Plan Only** | Run all 3 AI agents → generate plan + open PR |
+| **⚡ Plan + Code** | Plan + generate all implementation files |
+| **🚀 Full Build** | Plan + code + run sandbox tests automatically |
 
-### Logger Configuration
+---
 
-This template includes a custom console-based logger compatible with Cloudflare Workers. Payload's default logger uses `pino-pretty`, which relies on Node.js APIs not available in Workers and would cause `fs.write is not implemented` errors.
+## 🎨 Design
 
-The custom logger in `payload.config.ts`:
+- **Dark theme** with deep navy (`#070d1a`) background
+- **Glassmorphism** cards with backdrop blur
+- **Amber accent** color (`#f59e0b`) for CTAs and focus states
+- **Animated honeycomb** SVG background (520 cells)
+- **Monospace code blocks** for agent outputs
 
-- Routes logs through `console.*` methods which Workers handles correctly
-- Outputs JSON-formatted logs for Cloudflare observability
-- Only active in production (development uses the default `pino-pretty` for better DX)
+---
 
-You can control the log level via the `PAYLOAD_LOG_LEVEL` environment variable (e.g., `debug`, `info`, `warn`, `error`).
+## 📄 License
 
-### Diagnostic Channel Errors
-
-If you see "Failed to publish diagnostic channel message" errors in your observability logs, these typically come from the `undici` HTTP client library. The template includes `skipSafeFetch: true` in the Media collection to use native fetch instead of undici for file uploads, which helps reduce these errors.
-
-Cloudflare Workers runs in an [isolated environment that cannot access private IP ranges](https://developers.cloudflare.com/workers-vpc/examples/route-across-private-services/) by default, providing built-in SSRF protection. This makes `skipSafeFetch` safe to use.
-
-## Known issues
-
-### GraphQL
-
-We are currently waiting on some issues with GraphQL to be [fixed upstream in Workers](https://github.com/cloudflare/workerd/issues/5175) so full support for GraphQL is not currently guaranteed when deployed.
-
-### Worker size limits
-
-We currently recommend deploying this template to the Paid Workers plan due to bundle [size limits](https://developers.cloudflare.com/workers/platform/limits/#worker-size) of 3mb. We're actively trying to reduce our bundle footprint over time to better meet this metric.
-
-This also applies to your own code, in the case of importing a lot of libraries you may find yourself limited by the bundle.
-
-## Questions
-
-If you have any issues or questions, reach out to us on [Discord](https://discord.com/invite/payload) or start a [GitHub discussion](https://github.com/payloadcms/payload/discussions).
+MIT
