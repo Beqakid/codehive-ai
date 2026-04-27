@@ -25,6 +25,7 @@ import { runSandboxAgent } from '@/agents/sandboxAgent'
 type Mode = 'plan_only' | 'plan_code' | 'full_build'
 
 const MAX_COMMANDS_PER_MINUTE = 5
+const MAX_LOG_LENGTH = 8000 // Truncate logs to avoid D1 column size issues
 
 interface CommandBody {
   prompt?: unknown
@@ -179,6 +180,20 @@ export async function POST(request: Request) {
     }
   }
 
+  // Helper: safely update a Payload collection (swallows errors)
+  const safeUpdate = async (collection: string, id: number, data: Record<string, unknown>) => {
+    try {
+      await payload.update({
+        collection: collection as 'runs' | 'commands',
+        id,
+        overrideAccess: true,
+        data,
+      })
+    } catch (err) {
+      console.error(`[/api/command] Failed to update ${collection}#${id}:`, err)
+    }
+  }
+
   // Run pipeline in background — does NOT block the response
   void (async () => {
     const logEntries: string[] = []
@@ -191,18 +206,8 @@ export async function POST(request: Request) {
       send({ type: 'created', commandId, runId, codingRequestId, projectId })
 
       // Mark as running
-      await payload.update({
-        collection: 'runs',
-        id: runId,
-        overrideAccess: true,
-        data: { status: 'running' },
-      })
-      await payload.update({
-        collection: 'commands',
-        id: commandId,
-        overrideAccess: true,
-        data: { status: 'running' },
-      })
+      await safeUpdate('runs', runId, { status: 'running' })
+      await safeUpdate('commands', commandId, { status: 'running' })
 
       // ── Phase A: Orchestrator (plan) ────────────────────────────────────
       let planId: number | undefined
@@ -278,52 +283,32 @@ export async function POST(request: Request) {
         })
       }
 
-      // Mark complete
-      await payload.update({
-        collection: 'runs',
-        id: runId,
-        overrideAccess: true,
-        data: {
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-          logs: logEntries.join('\n'),
-          planId: planId ?? null,
-          prUrl: prUrl ?? null,
-        },
+      // ── Mark complete (best-effort — never blocks 'done' event) ───────
+      const truncatedLogs = logEntries.join('\n').slice(0, MAX_LOG_LENGTH)
+      await safeUpdate('runs', runId, {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        logs: truncatedLogs,
+        planId: planId ?? null,
+        prUrl: prUrl ?? null,
       })
-      await payload.update({
-        collection: 'commands',
-        id: commandId,
-        overrideAccess: true,
-        data: { status: 'completed' },
-      })
+      await safeUpdate('commands', commandId, { status: 'completed' })
 
+      // Always send 'done' — DB update failures must not prevent this
       send({ type: 'done', planId, prUrl, projectId })
     } catch (err) {
       const errMsg = String(err)
       log(`ERROR: ${errMsg}`)
 
-      try {
-        await payload.update({
-          collection: 'runs',
-          id: runId,
-          overrideAccess: true,
-          data: {
-            status: 'failed',
-            completedAt: new Date().toISOString(),
-            logs: logEntries.join('\n'),
-            error: errMsg,
-          },
-        })
-        await payload.update({
-          collection: 'commands',
-          id: commandId,
-          overrideAccess: true,
-          data: { status: 'failed' },
-        })
-      } catch {
-        // DB cleanup best-effort
-      }
+      // Best-effort failure status update
+      const truncatedLogs = logEntries.join('\n').slice(0, MAX_LOG_LENGTH)
+      await safeUpdate('runs', runId, {
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        logs: truncatedLogs,
+        error: errMsg.slice(0, 500),
+      })
+      await safeUpdate('commands', commandId, { status: 'failed' })
 
       send({ type: 'error', message: errMsg })
     } finally {
