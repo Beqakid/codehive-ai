@@ -4,8 +4,8 @@ import { redirect, notFound } from 'next/navigation'
 import React from 'react'
 import Link from 'next/link'
 import config from '@/payload.config'
-import CodeGenRunner from '@/components/CodeGenRunner'
-import SandboxRunner from '@/components/SandboxRunner'
+import { CodeGenRunner } from '@/components/CodeGenRunner'
+import { SandboxRunner } from '@/components/SandboxRunner'
 import HiveBackground from '@/components/HiveBackground'
 import '../../styles.css'
 
@@ -82,6 +82,7 @@ export default async function ProjectDetailPage({
   }
 
   const cfg = getStatusCfg(project.status)
+  const latestPlan = plans[0] ?? null
 
   return (
     <div style={{ minHeight: '100vh', background: '#070d1a', position: 'relative' }}>
@@ -166,29 +167,31 @@ export default async function ProjectDetailPage({
         {/* Main content */}
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
-          {/* AI Runner buttons */}
-          <div
-            style={{
-              background: 'rgba(13,21,38,0.8)',
-              backdropFilter: 'blur(12px)',
-              border: '1px solid rgba(30,58,95,0.7)',
-              borderRadius: 14,
-              padding: '1.5rem',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
-              <div style={{ width: 3, height: 18, borderRadius: 9999, background: 'linear-gradient(to bottom, #f59e0b, #d97706)' }} />
-              <span style={{ color: '#94a3b8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>AI Runners</span>
-            </div>
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 280 }}>
-                <CodeGenRunner projectId={project.id} repoUrl={project.repoUrl} />
+          {/* AI Runners — only show when a plan exists */}
+          {latestPlan && (
+            <div
+              style={{
+                background: 'rgba(13,21,38,0.8)',
+                backdropFilter: 'blur(12px)',
+                border: '1px solid rgba(30,58,95,0.7)',
+                borderRadius: 14,
+                padding: '1.5rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
+                <div style={{ width: 3, height: 18, borderRadius: 9999, background: 'linear-gradient(to bottom, #f59e0b, #d97706)' }} />
+                <span style={{ color: '#94a3b8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>AI Runners — Plan #{latestPlan.id}</span>
               </div>
-              <div style={{ flex: 1, minWidth: 280 }}>
-                <SandboxRunner projectId={project.id} />
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 280 }}>
+                  <CodeGenRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+                </div>
+                <div style={{ flex: 1, minWidth: 280 }}>
+                  <SandboxRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Agent plans */}
           <div>
@@ -223,7 +226,7 @@ export default async function ProjectDetailPage({
               >
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🤖</div>
                 <p style={{ margin: 0, color: '#475569', fontSize: '0.875rem' }}>
-                  No agent plans yet — run the Code Generator above to create one.
+                  No agent plans yet — submit a coding request via the Dashboard to get started.
                 </p>
               </div>
             ) : (
