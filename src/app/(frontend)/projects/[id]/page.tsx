@@ -52,7 +52,7 @@ export default async function ProjectDetailPage({
   const { user } = await payload.auth({ headers })
 
   if (!user) {
-    redirect('/admin')
+    redirect('/login')
   }
 
   let project: ProjectDoc

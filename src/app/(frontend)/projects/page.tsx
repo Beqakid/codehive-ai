@@ -27,7 +27,7 @@ export default async function ProjectsPage() {
   const { user } = await payload.auth({ headers })
 
   if (!user) {
-    redirect('/admin')
+    redirect('/login')
   }
 
   const projects = await payload.find({
