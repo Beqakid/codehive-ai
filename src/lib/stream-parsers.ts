@@ -1,6 +1,9 @@
 /**
- * Shared SSE stream parsers for OpenAI and Anthropic APIs.
- * Extracted from productAgent / codegenAgent / reviewerAgent to eliminate duplication.
+ * @module stream-parsers
+ * @description Shared SSE stream parsers for OpenAI and Anthropic APIs.
+ * Extracted from individual agents to eliminate duplication. Handles chunked
+ * ReadableStream decoding, SSE line parsing, and text accumulation with callbacks.
+ * Exports: parseOpenAIStream, parseAnthropicStream.
  */
 
 /** Parse an OpenAI chat completion SSE stream → full text + per-chunk callback. */

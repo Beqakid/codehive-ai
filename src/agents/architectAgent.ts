@@ -1,7 +1,9 @@
 /**
- * Architect Agent — Phase 2
- * Calls Anthropic Claude Sonnet 4.6 with extended thinking + streaming.
- * Falls back to OpenAI gpt-4.1 if Anthropic is unavailable.
+ * @module architectAgent
+ * @description Architect Agent that designs technical architecture from a product spec.
+ * Calls Anthropic Claude Sonnet 4.6 with extended thinking and streaming as primary provider,
+ * falls back to OpenAI gpt-4.1 if Anthropic is unavailable.
+ * Exports: runArchitectAgent, ArchitectureDesign, ArchitectAgentInput.
  */
 
 import type { RepoContext } from '../lib/github'

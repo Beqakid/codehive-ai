@@ -1,3 +1,11 @@
+/**
+ * @module layout
+ * @description Root layout for the CodeHive AI frontend app. Renders the top navigation
+ * bar with glassmorphism styling, HiveBackground, and auth-aware nav links.
+ * Decodes JWT from cookies for display purposes only (real auth is per-request).
+ * Exports: default RootLayout, metadata.
+ */
+
 import React from 'react'
 import { cookies } from 'next/headers'
 import Link from 'next/link'

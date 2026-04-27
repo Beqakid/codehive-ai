@@ -1,6 +1,9 @@
 /**
- * Simple retry wrapper with exponential backoff + jitter.
- * Retries on 429 (rate limit) and 5xx (server errors).
+ * @module retry
+ * @description Generic async retry wrapper with exponential backoff and jitter.
+ * Retries on 429 (rate limit), 5xx server errors, ECONNRESET, and fetch failures.
+ * Configurable maxRetries, baseDelayMs, and maxDelayMs.
+ * Exports: withRetry.
  */
 
 interface RetryOptions {

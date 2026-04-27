@@ -1,7 +1,10 @@
 /**
- * GitHub API utilities — Phase 2
- * Uses native fetch so no additional packages are needed.
- * All mutating operations now check response status and throw on failure.
+ * @module github
+ * @description GitHub REST API utilities using native fetch (no extra dependencies).
+ * Provides repo context fetching, branch creation, file commits, and PR creation.
+ * Exports: parseGithubUrl, getRepoContext, getDefaultBranchSha, createBranch,
+ * createOrUpdateFile, createPullRequest, RepoContext, RepoFile.
+ * @note All mutating operations check response status and throw on failure.
  */
 
 export interface RepoFile {

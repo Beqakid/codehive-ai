@@ -1,18 +1,10 @@
 /**
- * Orchestrator — Phase 2
- *
- * Coordinates the agent pipeline with live SSE streaming:
- * 1. Load CodingRequest from Payload
- * 2. Fetch GitHub repo context
- * 3. Run Product Agent (OpenAI GPT-4.1) → stream chunks
- * 4. Run Architect Agent (Anthropic Claude 3.7 Sonnet + extended thinking) → stream chunks
- * 5. Run Reviewer Agent (Anthropic Claude 3.7 Sonnet) → stream chunks
- * 6. Save AgentRuns + AgentPlan to Payload
- * 7. Create GitHub branch + file + PR
- * 8. Update CodingRequest status
- *
- * All Payload operations use overrideAccess: true because these are
- * system operations validated at the API route entry point.
+ * @module orchestrator
+ * @description Main AI agent pipeline orchestrator. Coordinates Product, Architect,
+ * and Reviewer agents in sequence with live SSE streaming. Fetches GitHub repo context,
+ * saves AgentRuns/AgentPlan to Payload, and creates GitHub branches and PRs.
+ * Exports: runOrchestrator, SSEEvent. Uses o4-mini for review verdict parsing.
+ * @note All Payload operations use overrideAccess: true (system-level).
  */
 
 import type { Payload } from 'payload'

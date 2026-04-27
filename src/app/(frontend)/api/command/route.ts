@@ -1,17 +1,10 @@
 /**
- * POST /api/command
- *
- * Unified SSE endpoint — authenticates user, creates all records,
- * then streams the full pipeline based on mode:
- *   plan_only  → orchestrator (product + architect + reviewer + PR)
- *   plan_code  → orchestrator + code generation
- *   full_build → orchestrator + code generation + sandbox trigger
- *
- * First SSE event: { type: 'created', commandId, runId, codingRequestId, projectId }
- * Auth failures return JSON 401/400 before the stream starts.
- *
- * Uses TransformStream for reliable Cloudflare Workers SSE streaming.
- * Rate limited: max 5 commands per user per minute.
+ * @module command-route
+ * @description POST /api/command — unified SSE endpoint for the full AI pipeline.
+ * Authenticates user, creates DB records, then streams the pipeline based on mode:
+ * plan_only → orchestrator, plan_code → + codegen, full_build → + sandbox.
+ * Uses TransformStream for Cloudflare Workers SSE compatibility.
+ * @note Rate limited to 5 commands per user per minute.
  */
 
 export const dynamic = 'force-dynamic'

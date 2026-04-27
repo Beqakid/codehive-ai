@@ -1,3 +1,11 @@
+/**
+ * @module roles
+ * @description Role-based access control (RBAC) helpers for Payload CMS collections.
+ * Defines a 4-tier role hierarchy: super_admin > admin > developer > viewer.
+ * Exports Payload Access functions (superAdminAccess, adminOrAboveAccess, etc.)
+ * and owner-scoped access for multi-tenant record isolation.
+ */
+
 import type { Access, FieldAccess } from 'payload'
 
 export type Role = 'super_admin' | 'admin' | 'developer' | 'viewer'

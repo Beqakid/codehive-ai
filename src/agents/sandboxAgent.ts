@@ -1,9 +1,9 @@
 /**
- * Sandbox Agent — Phase 4
- *
- * Polls GitHub Actions for the workflow run triggered by code gen commits on a PR branch.
- * If no run is found after initial check, pushes a trigger file to guarantee a push event.
- * Streams status events back so the UI can show live progress.
+ * @module sandboxAgent
+ * @description Phase 4 sandbox agent that monitors GitHub Actions workflow runs.
+ * Polls for workflow runs on a PR branch, triggers one via push if none exists,
+ * and streams live step-by-step status updates back to the UI.
+ * Exports: runSandboxAgent, SandboxSSEEvent.
  */
 
 export type SandboxSSEEvent =

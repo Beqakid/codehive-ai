@@ -1,14 +1,9 @@
 /**
- * Code Orchestrator — Phase 3 + 4
- *
- * Given an approved AgentPlan ID:
- * 1. Loads the plan from Payload
- * 2. Fetches the PR head branch from GitHub
- * 3. Fetches the plan markdown from that branch
- * 4. Parses the plan to extract the files to generate
- * 5. Generates each file via codegenAgent (streaming)
- * 6. Commits each file to the PR branch
- * 7. (Phase 4) Commits package.json + tsconfig.json + a test file so the sandbox can run
+ * @module codeOrchestrator
+ * @description Phase 3+4 code generation orchestrator. Given an approved AgentPlan,
+ * parses the plan markdown to extract files, generates each via codegenAgent with streaming,
+ * and commits them to the PR branch. Also bootstraps sandbox files (package.json, tsconfig, tests).
+ * Exports: runCodeOrchestrator, CodeGenSSEEvent.
  */
 
 import type { Payload } from 'payload'
