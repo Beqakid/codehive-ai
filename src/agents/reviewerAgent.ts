@@ -1,6 +1,6 @@
 /**
  * Reviewer Agent — Phase 2
- * Calls Anthropic Claude Sonnet 4 with streaming to review and critique the plan.
+ * Calls Anthropic Claude Sonnet 4.6 with streaming to review and critique the plan.
  * Uses native fetch — no additional packages required.
  */
 
@@ -64,7 +64,7 @@ Review this plan and provide:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         stream: true,

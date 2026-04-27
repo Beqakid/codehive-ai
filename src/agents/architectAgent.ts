@@ -1,6 +1,6 @@
 /**
  * Architect Agent — Phase 2
- * Calls Anthropic Claude 3.7 Sonnet with extended thinking + streaming.
+ * Calls Anthropic Claude Sonnet 4.6 with extended thinking + streaming.
  * Falls back to OpenAI gpt-4.1 if Anthropic is unavailable.
  */
 
@@ -71,11 +71,10 @@ Design the technical architecture with:
     headers: {
       'x-api-key': anthropicKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'interleaved-thinking-2025-05-14',
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-3-7-sonnet-20250219',
+      model: 'claude-sonnet-4-6',
       max_tokens: 16000,
       thinking: {
         type: 'enabled',
@@ -123,13 +122,12 @@ async function parseAnthropicStream(
           delta?: { type?: string; text?: string; thinking?: string }
           index?: number
         }
-        // Stream thinking blocks as italic prefix so user sees Claude is reasoning
+        // Don't stream raw thinking to UI — just accumulate silently
         if (
           json.type === 'content_block_delta' &&
           json.delta?.type === 'thinking_delta' &&
           json.delta?.thinking
         ) {
-          // Don't stream raw thinking to UI — just accumulate silently
           continue
         }
         if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
