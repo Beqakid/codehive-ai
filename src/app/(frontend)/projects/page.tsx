@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import React from 'react'
 import Link from 'next/link'
 import config from '@/payload.config'
+import HiveBackground from '@/components/HiveBackground'
 import '../styles.css'
 
 export const dynamic = 'force-dynamic'
@@ -18,14 +19,19 @@ interface ProjectDoc {
   description?: string
   status: string
   repoUrl?: string
-  owner?: { email: string } | number
-  createdAt: string
+  createdAt?: string
 }
 
-const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  active:   { bg: 'rgba(16,185,129,0.12)', text: '#10b981', dot: '#10b981' },
-  draft:    { bg: 'rgba(100,116,139,0.12)', text: '#94a3b8', dot: '#64748b' },
-  archived: { bg: 'rgba(100,116,139,0.08)', text: '#64748b', dot: '#475569' },
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
+  active: { label: 'Active', color: '#34d399', bg: 'rgba(16,185,129,0.12)', dot: '#10b981' },
+  planning: { label: 'Planning', color: '#fbbf24', bg: 'rgba(245,158,11,0.12)', dot: '#f59e0b' },
+  submitted: { label: 'Submitted', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', dot: '#3b82f6' },
+  approved: { label: 'Approved', color: '#c084fc', bg: 'rgba(192,132,252,0.12)', dot: '#a855f7' },
+  archived: { label: 'Archived', color: '#475569', bg: 'rgba(71,85,105,0.12)', dot: '#334155' },
+}
+
+function getStatusCfg(status: string) {
+  return STATUS_CONFIG[status] ?? { label: status, color: '#94a3b8', bg: 'rgba(30,41,59,0.5)', dot: '#475569' }
 }
 
 export default async function ProjectsPage() {
@@ -38,133 +44,247 @@ export default async function ProjectsPage() {
 
   const projects = await payload.find({
     collection: 'projects',
-    limit: 50,
+    limit: 100,
     sort: '-createdAt',
-    depth: 1,
+    depth: 0,
   })
 
-  const active = projects.docs.filter((p) => (p as unknown as ProjectDoc).status === 'active').length
-  const draft  = projects.docs.filter((p) => (p as unknown as ProjectDoc).status === 'draft').length
+  const docs = projects.docs as unknown as ProjectDoc[]
+
+  const total = docs.length
+  const activeCount = docs.filter((d) => d.status === 'active').length
+  const planningCount = docs.filter((d) => d.status === 'planning').length
 
   return (
-    <div style={{ minHeight: 'calc(100vh - 52px)', background: '#070d1a', padding: '2.5rem 1.5rem', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ minHeight: '100vh', background: '#070d1a', position: 'relative' }}>
+      <HiveBackground />
 
+      <div style={{ position: 'relative', zIndex: 1 }}>
         {/* Page header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
-              <div style={{ width: 4, height: 20, background: 'linear-gradient(to bottom, #f59e0b, #d97706)', borderRadius: 2 }} />
-              <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: '#f1f5f9' }}>Projects</h1>
+        <div
+          style={{
+            borderBottom: '1px solid rgba(30,58,95,0.6)',
+            background: 'rgba(7,13,26,0.75)',
+            backdropFilter: 'blur(14px)',
+            padding: '2.25rem 2rem 1.75rem',
+          }}
+        >
+          <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+            {/* Breadcrumb */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', fontSize: '0.78rem' }}>
+              <Link href="/dashboard" style={{ color: '#475569', textDecoration: 'none' }}>Dashboard</Link>
+              <span style={{ color: '#1e3a5f' }}>/</span>
+              <span style={{ color: '#94a3b8' }}>Projects</span>
             </div>
-            <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>
-              {projects.totalDocs} project{projects.totalDocs !== 1 ? 's' : ''} · {active} active · {draft} draft
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-            <Link href="/dashboard"
-              style={{ padding: '0.5rem 1rem', background: 'transparent', color: '#94a3b8', border: '1px solid #1e3a5f', borderRadius: 7, textDecoration: 'none', fontSize: '0.85rem', fontWeight: 500 }}>
-              Dashboard
-            </Link>
-            <Link href="/projects/new"
-              style={{ padding: '0.5rem 1.1rem', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff', borderRadius: 7, textDecoration: 'none', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <span>+</span> New Project
-            </Link>
-          </div>
-        </div>
 
-        {/* Stats strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
-          {[
-            { label: 'Total Projects', value: projects.totalDocs, color: '#3b82f6' },
-            { label: 'Active',          value: active,              color: '#10b981' },
-            { label: 'Draft',           value: draft,               color: '#f59e0b' },
-          ].map((s) => (
-            <div key={s.label} style={{ background: '#0d1526', border: '1px solid #1e3a5f', borderRadius: 10, padding: '1.1rem 1.25rem', borderTop: `2px solid ${s.color}` }}>
-              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.value}</div>
-              <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.02em' }}>
+                  🐝 Projects
+                </h1>
+                <p style={{ margin: '0.3rem 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                  All your CodeHive AI workspaces
+                </p>
+              </div>
 
-        {/* Empty state */}
-        {projects.docs.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '5rem 2rem', background: '#0d1526', borderRadius: 12, border: '1px dashed #1e3a5f' }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🐝</div>
-            <h2 style={{ margin: '0 0 0.5rem', color: '#f1f5f9', fontSize: '1.25rem' }}>No projects yet</h2>
-            <p style={{ margin: '0 0 1.5rem', color: '#64748b', fontSize: '0.9rem' }}>Create your first project to start generating code with AI agents.</p>
-            <Link href="/projects/new"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.7rem 1.5rem', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: '0.95rem' }}>
-              + Create your first project
-            </Link>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '1rem' }}>
-            {projects.docs.map((p) => {
-              const project = p as unknown as ProjectDoc
-              const sc = STATUS_COLORS[project.status] || STATUS_COLORS.draft!
-              const ownerEmail = typeof project.owner === 'object' && project.owner !== null
-                ? project.owner.email : ''
-              return (
-                <Link
-                  key={project.id}
-                  href={`/projects/${project.id}`}
-                  style={{
-                    display: 'block',
-                    background: '#0d1526',
-                    border: '1px solid #1e3a5f',
-                    borderRadius: 10,
-                    padding: '1.4rem',
-                    textDecoration: 'none',
-                    color: 'inherit',
-                    transition: 'border-color 0.15s, transform 0.12s',
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {/* Left accent bar */}
-                  <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: sc.dot, borderRadius: '4px 0 0 4px' }} />
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.6rem', paddingLeft: '0.25rem' }}>
-                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f1f5f9', lineHeight: 1.3 }}>{project.name}</h3>
-                    <span style={{
-                      fontSize: '0.68rem',
-                      padding: '2px 8px',
-                      borderRadius: 9999,
-                      background: sc.bg,
-                      color: sc.text,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                      flexShrink: 0,
-                      marginLeft: '0.5rem',
-                    }}>{project.status}</span>
+              {/* Stats */}
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Total', value: total, color: '#94a3b8' },
+                  { label: 'Active', value: activeCount, color: '#34d399' },
+                  { label: 'Planning', value: planningCount, color: '#fbbf24' },
+                ].map((s) => (
+                  <div
+                    key={s.label}
+                    style={{
+                      background: 'rgba(13,21,38,0.7)',
+                      border: '1px solid rgba(30,58,95,0.6)',
+                      borderRadius: 9,
+                      padding: '0.5rem 1rem',
+                      textAlign: 'center',
+                      minWidth: 70,
+                    }}
+                  >
+                    <div style={{ fontSize: '1.25rem', fontWeight: 800, color: s.color }}>{s.value}</div>
+                    <div style={{ fontSize: '0.65rem', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>{s.label}</div>
                   </div>
+                ))}
+              </div>
 
-                  {project.description && (
-                    <p style={{ margin: '0 0 0.85rem', color: '#64748b', fontSize: '0.85rem', lineHeight: 1.5, paddingLeft: '0.25rem' }}>
-                      {project.description.length > 110
-                        ? project.description.substring(0, 110) + '…'
-                        : project.description}
-                    </p>
-                  )}
+              <Link
+                href="/projects/new"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.6rem 1.25rem',
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  color: '#000',
+                  borderRadius: 9,
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  textDecoration: 'none',
+                  boxShadow: '0 4px 16px rgba(245,158,11,0.25)',
+                }}
+              >
+                + New Project
+              </Link>
+            </div>
+          </div>
+        </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingLeft: '0.25rem' }}>
-                    <div style={{ display: 'flex', gap: '1rem', fontSize: '0.78rem', color: '#475569' }}>
-                      {ownerEmail && <span>{ownerEmail}</span>}
-                      <span>{new Date(project.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        {/* Project grid */}
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '2rem' }}>
+          {docs.length === 0 ? (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '5rem 2rem',
+                background: 'rgba(13,21,38,0.6)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: 16,
+                border: '1px dashed rgba(30,58,95,0.7)',
+              }}
+            >
+              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🍯</div>
+              <h3 style={{ margin: '0 0 0.5rem', color: '#e2e8f0', fontSize: '1.1rem' }}>Your hive is empty</h3>
+              <p style={{ margin: '0 0 1.5rem', color: '#475569', fontSize: '0.875rem' }}>Create your first project to start building with AI agents.</p>
+              <Link
+                href="/projects/new"
+                style={{
+                  display: 'inline-block',
+                  padding: '0.65rem 1.5rem',
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  color: '#000',
+                  borderRadius: 9,
+                  fontWeight: 700,
+                  fontSize: '0.875rem',
+                  textDecoration: 'none',
+                }}
+              >
+                + New Project
+              </Link>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                gap: '1.1rem',
+              }}
+            >
+              {docs.map((project) => {
+                const cfg = getStatusCfg(project.status)
+                return (
+                  <Link
+                    key={project.id}
+                    href={`/projects/${project.id}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <div
+                      style={{
+                        background: 'rgba(13,21,38,0.82)',
+                        backdropFilter: 'blur(12px)',
+                        border: '1px solid rgba(30,58,95,0.7)',
+                        borderRadius: 13,
+                        padding: '1.25rem 1.35rem',
+                        transition: 'border-color 0.2s, transform 0.15s, box-shadow 0.2s',
+                        cursor: 'pointer',
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}
+                      onMouseEnter={(e) => {
+                        const el = e.currentTarget
+                        el.style.borderColor = 'rgba(245,158,11,0.45)'
+                        el.style.transform = 'translateY(-2px)'
+                        el.style.boxShadow = '0 8px 28px rgba(0,0,0,0.35)'
+                      }}
+                      onMouseLeave={(e) => {
+                        const el = e.currentTarget
+                        el.style.borderColor = 'rgba(30,58,95,0.7)'
+                        el.style.transform = 'translateY(0)'
+                        el.style.boxShadow = 'none'
+                      }}
+                    >
+                      {/* Accent line */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: 2,
+                          background: `linear-gradient(to right, ${cfg.dot}, transparent)`,
+                          borderRadius: '13px 13px 0 0',
+                        }}
+                      />
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                        <h3
+                          style={{
+                            margin: 0,
+                            fontSize: '0.95rem',
+                            fontWeight: 700,
+                            color: '#e2e8f0',
+                            lineHeight: 1.3,
+                            maxWidth: '75%',
+                          }}
+                        >
+                          {project.name}
+                        </h3>
+                        <span
+                          style={{
+                            fontSize: '0.65rem',
+                            padding: '3px 9px',
+                            borderRadius: 9999,
+                            background: cfg.bg,
+                            color: cfg.color,
+                            fontWeight: 700,
+                            border: `1px solid ${cfg.dot}40`,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {cfg.label}
+                        </span>
+                      </div>
+
+                      {project.description && (
+                        <p
+                          style={{
+                            margin: '0 0 0.85rem',
+                            fontSize: '0.8rem',
+                            color: '#475569',
+                            lineHeight: 1.5,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {project.description}
+                        </p>
+                      )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
+                        {project.repoUrl ? (
+                          <span style={{ fontSize: '0.7rem', color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span>⎇</span>
+                            <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {project.repoUrl.replace('https://github.com/', '')}
+                            </span>
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.7rem', color: '#1e3a5f' }}>No repo linked</span>
+                        )}
+                        <span style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 600 }}>Open →</span>
+                      </div>
                     </div>
-                    {project.repoUrl && (
-                      <span style={{ fontSize: '0.75rem', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <span>⬡</span> repo
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
-        )}
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

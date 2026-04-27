@@ -15,7 +15,7 @@ interface RunState {
   status: 'idle' | 'running' | 'done' | 'error'
   logs: string[]
   currentStep: string
-  progress: number // 0-100
+  progress: number
   planId?: number
   error?: string
 }
@@ -23,12 +23,12 @@ interface RunState {
 const STEPS = ['Product Agent', 'Architect Agent', 'Reviewer Agent', 'Creating PR', 'Done']
 
 const stepKeywords: Record<string, number> = {
-  'product': 0,
-  'architect': 1,
-  'reviewer': 2,
+  product: 0,
+  architect: 1,
+  reviewer: 2,
   'pull request': 3,
   'pr created': 4,
-  'complete': 4,
+  complete: 4,
 }
 
 function detectStep(log: string): number {
@@ -49,16 +49,20 @@ function StepBadges({ currentStep, status }: { currentStep: number; status: RunS
           <span
             key={label}
             style={{
-              fontSize: '0.65rem',
-              padding: '2px 6px',
+              fontSize: '0.62rem',
+              padding: '2px 7px',
               borderRadius: 9999,
               fontWeight: 600,
-              background: done ? '#dcfce7' : active ? '#fef9c3' : '#f3f4f6',
-              color: done ? '#166534' : active ? '#713f12' : '#9ca3af',
-              border: active ? '1px solid #fde047' : '1px solid transparent',
+              background: done
+                ? 'rgba(16,185,129,0.15)'
+                : active
+                  ? 'rgba(245,158,11,0.15)'
+                  : 'rgba(30,41,59,0.6)',
+              color: done ? '#34d399' : active ? '#fbbf24' : '#475569',
+              border: `1px solid ${done ? 'rgba(52,211,153,0.3)' : active ? 'rgba(251,191,36,0.4)' : 'rgba(30,58,95,0.4)'}`,
             }}
           >
-            {active ? '⚡ ' : done ? '✅ ' : '○ '}
+            {active ? '⚡ ' : done ? '✓ ' : '○ '}
             {label}
           </span>
         )
@@ -88,30 +92,39 @@ function ProjectRunCard({
 
   const borderColor =
     run.status === 'running'
-      ? '#f59e0b'
+      ? 'rgba(245,158,11,0.6)'
       : run.status === 'done'
-      ? '#10b981'
-      : run.status === 'error'
-      ? '#ef4444'
-      : selected
-      ? '#3b82f6'
-      : '#e5e7eb'
+        ? 'rgba(52,211,153,0.5)'
+        : run.status === 'error'
+          ? 'rgba(239,68,68,0.5)'
+          : selected
+            ? 'rgba(96,165,250,0.5)'
+            : 'rgba(30,58,95,0.7)'
+
+  const glowColor =
+    run.status === 'running'
+      ? '0 0 18px rgba(245,158,11,0.12)'
+      : run.status === 'done'
+        ? '0 0 18px rgba(52,211,153,0.08)'
+        : 'none'
 
   const statusBadge = {
-    idle: { bg: '#f3f4f6', color: '#6b7280', label: 'Idle' },
-    running: { bg: '#fef3c7', color: '#92400e', label: '⚡ Running' },
-    done: { bg: '#dcfce7', color: '#166534', label: '✅ Done' },
-    error: { bg: '#fee2e2', color: '#991b1b', label: '❌ Error' },
+    idle: { bg: 'rgba(30,41,59,0.6)', color: '#475569', label: 'Idle', dot: '#475569' },
+    running: { bg: 'rgba(245,158,11,0.12)', color: '#fbbf24', label: 'Running', dot: '#f59e0b' },
+    done: { bg: 'rgba(16,185,129,0.12)', color: '#34d399', label: 'Done', dot: '#10b981' },
+    error: { bg: 'rgba(239,68,68,0.12)', color: '#f87171', label: 'Error', dot: '#ef4444' },
   }[run.status]
 
   return (
     <div
       style={{
-        border: `2px solid ${borderColor}`,
-        borderRadius: 10,
-        padding: '1rem',
-        background: '#fff',
-        transition: 'border-color 0.2s',
+        border: `1px solid ${borderColor}`,
+        borderRadius: 12,
+        padding: '1.1rem',
+        background: 'rgba(13,21,38,0.85)',
+        backdropFilter: 'blur(10px)',
+        boxShadow: glowColor,
+        transition: 'border-color 0.25s, box-shadow 0.25s',
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
@@ -119,20 +132,20 @@ function ProjectRunCard({
     >
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <input
             type="checkbox"
             checked={selected}
             onChange={onToggle}
             disabled={run.status === 'running'}
-            style={{ cursor: 'pointer', width: 16, height: 16 }}
+            style={{ cursor: 'pointer', width: 15, height: 15, accentColor: '#f59e0b' }}
           />
           <div>
-            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>{project.name}</h3>
+            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#e2e8f0' }}>{project.name}</h3>
             {project.description && (
-              <p style={{ margin: 0, fontSize: '0.75rem', color: '#9ca3af', lineHeight: 1.3 }}>
+              <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: '#475569', lineHeight: 1.4 }}>
                 {project.description.length > 80
-                  ? project.description.substring(0, 80) + '...'
+                  ? project.description.substring(0, 80) + '…'
                   : project.description}
               </p>
             )}
@@ -140,29 +153,46 @@ function ProjectRunCard({
         </div>
         <span
           style={{
-            fontSize: '0.7rem',
-            padding: '2px 8px',
+            fontSize: '0.68rem',
+            padding: '3px 9px',
             borderRadius: 9999,
             background: statusBadge.bg,
             color: statusBadge.color,
-            fontWeight: 600,
+            fontWeight: 700,
             whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            border: `1px solid ${statusBadge.dot}40`,
           }}
         >
+          {run.status === 'running' && (
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: statusBadge.dot,
+                display: 'inline-block',
+                animation: 'pulse 1s infinite',
+              }}
+            />
+          )}
           {statusBadge.label}
         </span>
       </div>
 
       {/* Progress bar */}
       {run.status === 'running' && (
-        <div style={{ background: '#f3f4f6', borderRadius: 9999, height: 4, overflow: 'hidden' }}>
+        <div style={{ background: 'rgba(15,23,42,0.8)', borderRadius: 9999, height: 3, overflow: 'hidden' }}>
           <div
             style={{
-              background: '#f59e0b',
+              background: 'linear-gradient(to right, #f59e0b, #fb923c)',
               height: '100%',
               width: `${run.progress}%`,
               transition: 'width 0.4s ease',
               borderRadius: 9999,
+              boxShadow: '0 0 6px rgba(245,158,11,0.6)',
             }}
           />
         </div>
@@ -170,7 +200,10 @@ function ProjectRunCard({
 
       {/* Step badges */}
       {run.status !== 'idle' && (
-        <StepBadges currentStep={run.progress >= 100 ? 4 : Math.floor((run.progress / 100) * 4)} status={run.status} />
+        <StepBadges
+          currentStep={run.progress >= 100 ? 4 : Math.floor((run.progress / 100) * 4)}
+          status={run.status}
+        />
       )}
 
       {/* Log tail */}
@@ -178,38 +211,53 @@ function ProjectRunCard({
         <div
           ref={logsRef}
           style={{
-            background: '#0f172a',
-            borderRadius: 6,
+            background: 'rgba(2,6,23,0.9)',
+            border: '1px solid rgba(30,58,95,0.5)',
+            borderRadius: 8,
             padding: '0.5rem 0.75rem',
-            maxHeight: 120,
+            maxHeight: 110,
             overflowY: 'auto',
-            fontSize: '0.7rem',
-            fontFamily: 'monospace',
+            fontSize: '0.68rem',
+            fontFamily: '"JetBrains Mono", "Fira Code", monospace',
             color: '#94a3b8',
-            lineHeight: 1.5,
+            lineHeight: 1.6,
           }}
         >
           {run.logs.slice(-20).map((log, i) => (
-            <div key={i} style={{ color: log.includes('error') || log.includes('Error') ? '#f87171' : '#94a3b8' }}>
+            <div
+              key={i}
+              style={{
+                color:
+                  log.toLowerCase().includes('error')
+                    ? '#f87171'
+                    : log.includes('✅') || log.includes('done')
+                      ? '#34d399'
+                      : '#94a3b8',
+              }}
+            >
+              <span style={{ color: '#334155', marginRight: 6 }}>›</span>
               {log}
             </div>
           ))}
         </div>
       )}
 
-      {/* View link */}
-      {(run.status === 'done' || run.planId) && (
-        <a
-          href={`/projects/${project.id}`}
-          style={{ fontSize: '0.75rem', color: '#3b82f6', textDecoration: 'none' }}
-        >
-          View project →
-        </a>
-      )}
-
-      {run.error && (
-        <p style={{ margin: 0, fontSize: '0.75rem', color: '#ef4444' }}>{run.error}</p>
-      )}
+      {/* Footer */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
+        {(run.status === 'done' || run.planId) ? (
+          <Link
+            href={`/projects/${project.id}`}
+            style={{ fontSize: '0.72rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
+          >
+            View project →
+          </Link>
+        ) : (
+          <div />
+        )}
+        {run.error && (
+          <p style={{ margin: 0, fontSize: '0.7rem', color: '#f87171' }}>{run.error}</p>
+        )}
+      </div>
     </div>
   )
 }
@@ -217,7 +265,9 @@ function ProjectRunCard({
 export default function ParallelDashboard({ projects }: { projects: Project[] }) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [runs, setRuns] = useState<Record<number, RunState>>({})
-  const [prompt, setPrompt] = useState('Add user authentication with JWT tokens, login/logout, and protected routes')
+  const [prompt, setPrompt] = useState(
+    'Add user authentication with JWT tokens, login/logout, and protected routes',
+  )
   const abortRefs = useRef<Record<number, AbortController>>({})
 
   const updateRun = useCallback((id: number, patch: Partial<RunState>) => {
@@ -243,7 +293,7 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
 
       updateRun(project.id, {
         status: 'running',
-        logs: [`Starting agents for "${project.name}"...`],
+        logs: [`Starting agents for "${project.name}"…`],
         currentStep: 'Product Agent',
         progress: 5,
       })
@@ -284,7 +334,12 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
 
               const stepIdx = detectStep(text)
               setRuns((prev) => {
-                const cur = prev[project.id] || { status: 'running', logs: [], currentStep: '', progress: 5 }
+                const cur = prev[project.id] || {
+                  status: 'running',
+                  logs: [],
+                  currentStep: '',
+                  progress: 5,
+                }
                 const newProgress =
                   stepIdx >= 0
                     ? Math.max(cur.progress, Math.round((stepIdx / 4) * 100))
@@ -307,10 +362,7 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
         updateRun(project.id, { status: 'done', progress: 100 })
       } catch (err: unknown) {
         if ((err as Error).name === 'AbortError') return
-        updateRun(project.id, {
-          status: 'error',
-          error: (err as Error).message,
-        })
+        updateRun(project.id, { status: 'error', error: (err as Error).message })
       }
     },
     [prompt, updateRun],
@@ -339,45 +391,58 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
   const runningCount = Object.values(runs).filter((r) => r.status === 'running').length
 
   return (
-    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', maxWidth: 1400, margin: '0 auto', padding: '2rem' }}>
-      {/* Header */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <h1 style={{ margin: '0 0 0.25rem', fontSize: '1.75rem' }}>⚡ Parallel Runs Dashboard</h1>
-        <p style={{ margin: 0, color: '#6b7280', fontSize: '0.9rem' }}>
-          Run multiple AI agent pipelines simultaneously. Select projects → set the prompt → fire away.
-        </p>
-      </div>
-
+    <div
+      style={{
+        background: 'rgba(13,21,38,0.75)',
+        backdropFilter: 'blur(14px)',
+        border: '1px solid rgba(30,58,95,0.7)',
+        borderRadius: 16,
+        padding: '1.75rem',
+        boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
+      }}
+    >
       {/* Stats bar */}
-      {anyRunning || doneCount > 0 ? (
+      {(anyRunning || doneCount > 0) && (
         <div
           style={{
             display: 'flex',
             gap: '1rem',
-            marginBottom: '1.5rem',
-            padding: '0.75rem 1rem',
-            background: '#f8fafc',
-            borderRadius: 8,
-            border: '1px solid #e2e8f0',
+            marginBottom: '1.25rem',
+            padding: '0.65rem 1rem',
+            background: 'rgba(7,13,26,0.6)',
+            borderRadius: 10,
+            border: '1px solid rgba(30,58,95,0.5)',
+            flexWrap: 'wrap',
           }}
         >
           {runningCount > 0 && (
-            <span style={{ color: '#d97706', fontWeight: 600, fontSize: '0.85rem' }}>
-              ⚡ {runningCount} running
+            <span style={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+              {runningCount} running
             </span>
           )}
           {doneCount > 0 && (
-            <span style={{ color: '#059669', fontWeight: 600, fontSize: '0.85rem' }}>
-              ✅ {doneCount} completed
+            <span style={{ color: '#34d399', fontWeight: 700, fontSize: '0.8rem' }}>
+              ✓ {doneCount} completed
             </span>
           )}
         </div>
-      ) : null}
+      )}
 
       {/* Prompt input */}
-      <div style={{ marginBottom: '1.25rem' }}>
-        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-          Coding Request (sent to all selected projects)
+      <div style={{ marginBottom: '1.1rem' }}>
+        <label
+          style={{
+            display: 'block',
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            color: '#64748b',
+            marginBottom: 6,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+          }}
+        >
+          Coding request — sent to all selected projects
         </label>
         <textarea
           value={prompt}
@@ -386,39 +451,66 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
           rows={2}
           style={{
             width: '100%',
-            padding: '0.625rem 0.75rem',
-            borderRadius: 6,
-            border: '1px solid #d1d5db',
+            padding: '0.7rem 0.9rem',
+            borderRadius: 10,
+            border: '1px solid rgba(30,58,95,0.8)',
+            background: 'rgba(7,13,26,0.7)',
+            color: '#e2e8f0',
             fontSize: '0.85rem',
             fontFamily: 'inherit',
             resize: 'vertical',
             boxSizing: 'border-box',
-            opacity: anyRunning ? 0.6 : 1,
+            opacity: anyRunning ? 0.5 : 1,
+            outline: 'none',
           }}
         />
       </div>
 
       {/* Action bar */}
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button onClick={selectAll} disabled={anyRunning} style={ghostBtn}>
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.6rem',
+          marginBottom: '1.5rem',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}
+      >
+        <button
+          onClick={selectAll}
+          disabled={anyRunning}
+          style={darkGhostBtn}
+        >
           Select All
         </button>
-        <button onClick={selectNone} disabled={anyRunning} style={ghostBtn}>
+        <button onClick={selectNone} disabled={anyRunning} style={darkGhostBtn}>
           Clear
         </button>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>
-          {selected.size} of {projects.length} selected
+        <span style={{ fontSize: '0.75rem', color: '#475569' }}>
+          {selected.size} / {projects.length} selected
         </span>
         {anyRunning ? (
-          <button onClick={stopAll} style={{ ...actionBtn, background: '#ef4444' }}>
+          <button
+            onClick={stopAll}
+            style={{
+              ...darkActionBtn,
+              background: 'rgba(239,68,68,0.15)',
+              color: '#f87171',
+              border: '1px solid rgba(239,68,68,0.4)',
+            }}
+          >
             ⏹ Stop All
           </button>
         ) : (
           <button
             onClick={runSelected}
             disabled={selected.size === 0}
-            style={{ ...actionBtn, opacity: selected.size === 0 ? 0.4 : 1, cursor: selected.size === 0 ? 'not-allowed' : 'pointer' }}
+            style={{
+              ...darkActionBtn,
+              opacity: selected.size === 0 ? 0.35 : 1,
+              cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+            }}
           >
             ▶ Run {selected.size > 0 ? `${selected.size} Selected` : 'Selected'}
           </button>
@@ -427,19 +519,38 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
 
       {/* Project grid */}
       {projects.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-          <p style={{ color: '#6b7280', margin: 0 }}>
-            No projects yet.{' '}
-            <Link href="/admin/collections/projects/create" style={{ color: '#3b82f6' }}>
-              Create one
-            </Link>
-          </p>
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '3.5rem 2rem',
+            background: 'rgba(7,13,26,0.5)',
+            borderRadius: 12,
+            border: '1px dashed rgba(30,58,95,0.6)',
+          }}
+        >
+          <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>🐝</div>
+          <p style={{ color: '#475569', margin: '0 0 1rem', fontSize: '0.9rem' }}>No projects yet — start building</p>
+          <Link
+            href="/projects/new"
+            style={{
+              display: 'inline-block',
+              padding: '0.5rem 1.25rem',
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: '#000',
+              borderRadius: 8,
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              textDecoration: 'none',
+            }}
+          >
+            + New Project
+          </Link>
         </div>
       ) : (
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
             gap: '1rem',
           }}
         >
@@ -449,7 +560,9 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
               project={p}
               selected={selected.has(p.id)}
               onToggle={() => toggleSelect(p.id)}
-              run={runs[p.id] || { status: 'idle', logs: [], currentStep: '', progress: 0 }}
+              run={
+                runs[p.id] || { status: 'idle', logs: [], currentStep: '', progress: 0 }
+              }
             />
           ))}
         </div>
@@ -458,23 +571,25 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
   )
 }
 
-const actionBtn: React.CSSProperties = {
-  padding: '0.5rem 1.25rem',
-  background: '#10b981',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 6,
-  fontWeight: 600,
-  fontSize: '0.85rem',
-  cursor: 'pointer',
-}
-
-const ghostBtn: React.CSSProperties = {
-  padding: '0.4rem 0.875rem',
-  background: 'transparent',
-  color: '#374151',
-  border: '1px solid #d1d5db',
-  borderRadius: 6,
+const darkActionBtn: React.CSSProperties = {
+  padding: '0.45rem 1.1rem',
+  background: 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(217,119,6,0.2))',
+  color: '#fbbf24',
+  border: '1px solid rgba(245,158,11,0.4)',
+  borderRadius: 8,
+  fontWeight: 700,
   fontSize: '0.8rem',
   cursor: 'pointer',
+  transition: 'all 0.2s',
+}
+
+const darkGhostBtn: React.CSSProperties = {
+  padding: '0.4rem 0.85rem',
+  background: 'rgba(30,41,59,0.5)',
+  color: '#94a3b8',
+  border: '1px solid rgba(30,58,95,0.6)',
+  borderRadius: 8,
+  fontSize: '0.78rem',
+  cursor: 'pointer',
+  transition: 'all 0.2s',
 }

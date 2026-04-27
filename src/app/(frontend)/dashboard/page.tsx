@@ -5,6 +5,7 @@ import React from 'react'
 import config from '@/payload.config'
 import ParallelDashboard from '@/components/ParallelDashboard'
 import CommandInterface from '@/components/CommandInterface'
+import HiveBackground from '@/components/HiveBackground'
 import '../styles.css'
 
 export const dynamic = 'force-dynamic'
@@ -49,30 +50,96 @@ export default async function DashboardPage() {
     }
   })
 
+  const activeCount = projectList.filter((p) => p.status === 'active').length
+  const planningCount = projectList.filter((p) => p.status === 'planning').length
+
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-10">
-        {/* Global Command Interface — top of dashboard */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-6 h-0.5 bg-gradient-to-r from-yellow-500 to-orange-500" />
-            <h1 className="text-lg font-bold text-white tracking-tight">Command Center</h1>
-          </div>
-          <CommandInterface />
-        </section>
+    <div style={{ minHeight: '100vh', background: '#070d1a', position: 'relative' }}>
+      <HiveBackground />
 
-        {/* Divider */}
-        <div className="border-t border-gray-800" />
+      {/* All content sits above the background */}
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        {/* Hero header */}
+        <div
+          style={{
+            borderBottom: '1px solid rgba(30,58,95,0.6)',
+            background: 'rgba(7,13,26,0.7)',
+            backdropFilter: 'blur(12px)',
+            padding: '2.5rem 2rem 2rem',
+          }}
+        >
+          <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem' }}>
+                  <span style={{ fontSize: '1.6rem' }}>🐝</span>
+                  <h1 style={{ margin: 0, fontSize: '1.65rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.02em' }}>
+                    Command Center
+                  </h1>
+                </div>
+                <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
+                  Welcome back, <span style={{ color: '#f59e0b', fontWeight: 600 }}>{user.email}</span>
+                </p>
+              </div>
 
-        {/* Parallel runs dashboard */}
-        <section>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-6 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500" />
-            <h2 className="text-lg font-bold text-white tracking-tight">Projects</h2>
-            <span className="text-gray-500 text-sm">({projectList.length})</span>
+              {/* Stats strip */}
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Total Projects', value: projectList.length, color: '#60a5fa' },
+                  { label: 'Active', value: activeCount, color: '#34d399' },
+                  { label: 'Planning', value: planningCount, color: '#f59e0b' },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    style={{
+                      background: 'rgba(13,21,38,0.8)',
+                      border: '1px solid rgba(30,58,95,0.7)',
+                      borderRadius: 10,
+                      padding: '0.65rem 1.25rem',
+                      textAlign: 'center',
+                      minWidth: 90,
+                    }}
+                  >
+                    <div style={{ fontSize: '1.4rem', fontWeight: 800, color: stat.color, lineHeight: 1 }}>
+                      {stat.value}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: 3, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      {stat.label}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          <ParallelDashboard projects={projectList} />
-        </section>
+        </div>
+
+        {/* Main content */}
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '2.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+
+          {/* Command Interface */}
+          <section>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div style={{ width: 3, height: 20, borderRadius: 9999, background: 'linear-gradient(to bottom, #f59e0b, #d97706)' }} />
+              <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>AI Command</span>
+            </div>
+            <CommandInterface />
+          </section>
+
+          {/* Divider */}
+          <div style={{ height: 1, background: 'linear-gradient(to right, transparent, rgba(30,58,95,0.8), transparent)' }} />
+
+          {/* Parallel Dashboard */}
+          <section>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div style={{ width: 3, height: 20, borderRadius: 9999, background: 'linear-gradient(to bottom, #60a5fa, #818cf8)' }} />
+              <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Parallel Runs</span>
+              <span style={{ background: 'rgba(30,58,95,0.6)', color: '#64748b', fontSize: '0.7rem', fontWeight: 600, padding: '2px 8px', borderRadius: 9999, border: '1px solid rgba(30,58,95,0.8)' }}>
+                {projectList.length} projects
+              </span>
+            </div>
+            <ParallelDashboard projects={projectList} />
+          </section>
+        </div>
       </div>
     </div>
   )
