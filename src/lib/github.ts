@@ -1,6 +1,7 @@
 /**
  * GitHub API utilities — Phase 2
  * Uses native fetch so no additional packages are needed.
+ * All mutating operations now check response status and throw on failure.
  */
 
 export interface RepoFile {
@@ -93,6 +94,9 @@ export async function getDefaultBranchSha(
   const headers = githubHeaders()
 
   const repoResp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers })
+  if (!repoResp.ok) {
+    throw new Error(`GitHub getDefaultBranchSha: repo fetch failed (${repoResp.status})`)
+  }
   const repoData = (await repoResp.json()) as { default_branch: string }
   const defaultBranch = repoData.default_branch || 'main'
 
@@ -100,6 +104,9 @@ export async function getDefaultBranchSha(
     `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`,
     { headers },
   )
+  if (!refResp.ok) {
+    throw new Error(`GitHub getDefaultBranchSha: ref fetch failed (${refResp.status})`)
+  }
   const refData = (await refResp.json()) as { object: { sha: string } }
 
   return { branch: defaultBranch, sha: refData.object.sha }
@@ -112,11 +119,15 @@ export async function createBranch(
   sha: string,
 ): Promise<void> {
   const headers = githubHeaders()
-  await fetch(`https://api.github.com/repos/${owner}/${repo}/git/refs`, {
+  const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/refs`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha }),
   })
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => 'unknown')
+    throw new Error(`GitHub createBranch failed (${resp.status}): ${errBody.slice(0, 200)}`)
+  }
 }
 
 function toBase64(str: string): string {
@@ -136,11 +147,35 @@ export async function createOrUpdateFile(
   message: string,
 ): Promise<void> {
   const headers = githubHeaders()
-  await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+
+  // Check if file already exists to get its sha (required for updates)
+  let sha: string | undefined
+  try {
+    const existResp = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`,
+      { headers },
+    )
+    if (existResp.ok) {
+      const existData = (await existResp.json()) as { sha?: string }
+      sha = existData.sha
+    }
+  } catch {
+    // File doesn't exist — will be created fresh
+  }
+
+  const body: Record<string, string> = { message, content: toBase64(content), branch }
+  if (sha) body.sha = sha
+
+  const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ message, content: toBase64(content), branch }),
+    body: JSON.stringify(body),
   })
+
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => 'unknown')
+    throw new Error(`GitHub createOrUpdateFile failed (${resp.status}): ${errBody.slice(0, 200)}`)
+  }
 }
 
 export async function createPullRequest(
@@ -157,6 +192,10 @@ export async function createPullRequest(
     headers,
     body: JSON.stringify({ title, body, head, base }),
   })
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => 'unknown')
+    throw new Error(`GitHub createPullRequest failed (${resp.status}): ${errBody.slice(0, 200)}`)
+  }
   const data = (await resp.json()) as { html_url: string }
   return data.html_url || ''
 }

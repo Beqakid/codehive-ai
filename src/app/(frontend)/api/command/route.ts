@@ -9,6 +9,8 @@
  *
  * First SSE event: { type: 'created', commandId, runId, codingRequestId, projectId }
  * Auth failures return JSON 401/400 before the stream starts.
+ *
+ * Uses TransformStream for reliable Cloudflare Workers SSE streaming.
  */
 
 export const dynamic = 'force-dynamic'
@@ -30,7 +32,7 @@ interface CommandBody {
 export async function POST(request: Request) {
   const encoder = new TextEncoder()
 
-  // ── 1. Init Payload (works fine here) ────────────────────────────────────
+  // ── 1. Init Payload ──────────────────────────────────────────────────────
   let payload: Awaited<ReturnType<typeof getPayload>>
   try {
     const payloadConfig = await config
@@ -39,8 +41,14 @@ export async function POST(request: Request) {
     return Response.json({ error: `Payload init failed: ${String(err)}` }, { status: 500 })
   }
 
-  // ── 2. Auth ───────────────────────────────────────────────────────────────
-  const { user } = await payload.auth({ headers: new Headers(request.headers) })
+  // ── 2. Auth (wrapped — payload.auth can throw on Workers) ────────────────
+  let user: { id: number } | null = null
+  try {
+    const authResult = await payload.auth({ headers: new Headers(request.headers) })
+    user = authResult?.user as { id: number } | null ?? null
+  } catch {
+    // auth() threw — treat as unauthorized
+  }
   if (!user) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -131,146 +139,182 @@ export async function POST(request: Request) {
     return Response.json({ error: String(err) }, { status: 500 })
   }
 
-  // ── 5. Return SSE stream ──────────────────────────────────────────────────
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (event: SSEEvent | { type: string; [key: string]: unknown }) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-      }
+  // ── 5. Return SSE stream via TransformStream (idiomatic CF Workers pattern)
+  //    Response is returned immediately; pipeline runs in background writing
+  //    to the writable side. Errors become SSE error events, never HTTP 500.
+  const { readable, writable } = new TransformStream()
+  const writer = writable.getWriter()
 
-      // First event gives the UI the IDs it needs
+  // Fire-and-forget write — TransformStream buffers internally
+  const send = (event: SSEEvent | { type: string; [key: string]: unknown }) => {
+    try {
+      void writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+    } catch {
+      // writer already closed — ignore
+    }
+  }
+
+  // Run pipeline in background — does NOT block the response
+  void (async () => {
+    const logEntries: string[] = []
+    const log = (msg: string) => {
+      logEntries.push(`[${new Date().toISOString()}] ${msg}`)
+    }
+
+    try {
+      // First event gives the UI the record IDs
       send({ type: 'created', commandId, runId, codingRequestId, projectId })
 
-      const logEntries: string[] = []
-      const log = (msg: string) => {
-        logEntries.push(`[${new Date().toISOString()}] ${msg}`)
-      }
-
       // Mark as running
-      try {
-        await payload.update({
-          collection: 'runs',
-          id: runId,
-          overrideAccess: true,
-          data: { status: 'running' },
+      await payload.update({
+        collection: 'runs',
+        id: runId,
+        overrideAccess: true,
+        data: { status: 'running' },
+      })
+      await payload.update({
+        collection: 'commands',
+        id: commandId,
+        overrideAccess: true,
+        data: { status: 'running' },
+      })
+
+      // ── Phase A: Orchestrator (plan) ────────────────────────────────────
+      let planId: number | undefined
+      let prUrl: string | undefined
+
+      await runOrchestrator(payload, codingRequestId, (event) => {
+        send(event)
+        if (event.type === 'plan_saved') {
+          planId = event.planId
+          log(`Plan saved: #${planId}`)
+        }
+        if (event.type === 'pr_created') {
+          prUrl = event.url
+          log(`PR created: ${prUrl}`)
+        }
+        if (event.type === 'chunk') {
+          log(`[${event.agent}] ${event.text.slice(0, 80)}`)
+        }
+      })
+
+      // ── Phase B: Code generation ──────────────────────────────────────
+      if (mode === 'plan_code' || mode === 'full_build') {
+        if (!planId) throw new Error('No plan ID — cannot generate code without an approved plan')
+        send({ type: 'phase', phase: 'codegen', message: '\u26a1 Starting code generation...' })
+        log('Starting code generation')
+
+        await runCodeOrchestrator(payload, planId, (event) => {
+          send(event)
+          if (event.type === 'chunk') log(`[codegen] ${(event as { text?: string }).text?.slice(0, 80) ?? ''}`)
+          if (event.type === 'file_done') log(`Committed: ${(event as { file?: string }).file ?? ''}`)
         })
-        await payload.update({
-          collection: 'commands',
-          id: commandId,
-          overrideAccess: true,
-          data: { status: 'running' },
-        })
-      } catch (err) {
-        send({ type: 'error', message: `DB status update failed: ${String(err)}` })
-        controller.close()
-        return
       }
 
-      try {
-        // ── Phase A: Orchestrator (plan) ──────────────────────────────────
-        let planId: number | undefined
-        let prUrl: string | undefined
+      // ── Phase C: Sandbox ──────────────────────────────────────────────
+      if (mode === 'full_build') {
+        if (!prUrl) throw new Error('No PR URL — cannot run sandbox without a PR')
+        send({ type: 'phase', phase: 'sandbox', message: '\ud83e\uddea Triggering sandbox tests...' })
+        log('Starting sandbox')
 
-        await runOrchestrator(payload, codingRequestId, (event) => {
+        // Parse PR URL → owner/repo + fetch branch name from GitHub PR API
+        const repoMatch = prUrl.match(/github\.com\/([^/]+)\/([^/]+)/)
+        const prNumMatch = prUrl.match(/\/pull\/(\d+)/)
+        if (!repoMatch) throw new Error(`Could not parse PR URL: ${prUrl}`)
+
+        const sbOwner = repoMatch[1]
+        const sbRepo = repoMatch[2]
+        let sbBranch = 'main'
+
+        if (prNumMatch) {
+          try {
+            const prResp = await fetch(
+              `https://api.github.com/repos/${sbOwner}/${sbRepo}/pulls/${prNumMatch[1]}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                  Accept: 'application/vnd.github.v3+json',
+                  'User-Agent': 'codehive-ai/4.0',
+                },
+              },
+            )
+            if (prResp.ok) {
+              const prData = (await prResp.json()) as { head?: { ref?: string } }
+              sbBranch = prData.head?.ref ?? 'main'
+            }
+          } catch {
+            // fallback to main
+          }
+        }
+
+        await runSandboxAgent(sbOwner, sbRepo, sbBranch, (event) => {
           send(event)
-          if (event.type === 'plan_saved') {
-            planId = event.planId
-            log(`Plan saved: #${planId}`)
-          }
-          if (event.type === 'pr_created') {
-            prUrl = event.url
-            log(`PR created: ${prUrl}`)
-          }
-          if (event.type === 'chunk') {
-            log(`[${event.agent}] ${event.text.slice(0, 80)}`)
-          }
+          log(`[sandbox] ${JSON.stringify(event).slice(0, 100)}`)
         })
+      }
 
-        // ── Phase B: Code generation ──────────────────────────────────────
-        if (mode === 'plan_code' || mode === 'full_build') {
-          if (!planId) throw new Error('No plan ID — cannot generate code without an approved plan')
-          send({ type: 'phase', phase: 'codegen', message: '\u26a1 Starting code generation...' })
-          log('Starting code generation')
+      // Mark complete
+      await payload.update({
+        collection: 'runs',
+        id: runId,
+        overrideAccess: true,
+        data: {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          logs: logEntries.join('\n'),
+          planId: planId ?? null,
+          prUrl: prUrl ?? null,
+        },
+      })
+      await payload.update({
+        collection: 'commands',
+        id: commandId,
+        overrideAccess: true,
+        data: { status: 'completed' },
+      })
 
-          await runCodeOrchestrator(payload, planId, (event) => {
-            send(event)
-            if (event.type === 'chunk') log(`[codegen] ${event.text.slice(0, 80)}`)
-            if (event.type === 'file_done') log(`Committed: ${event.file}`)
-          })
-        }
+      send({ type: 'done', planId, prUrl, projectId })
+    } catch (err) {
+      const errMsg = String(err)
+      log(`ERROR: ${errMsg}`)
 
-        // ── Phase C: Sandbox ──────────────────────────────────────────────
-        if (mode === 'full_build') {
-          if (!prUrl) throw new Error('No PR URL — cannot run sandbox without a PR')
-          send({ type: 'phase', phase: 'sandbox', message: '\U0001f9ea Triggering sandbox tests...' })
-          log('Starting sandbox')
-
-          await runSandboxAgent(prUrl, (event) => {
-            send(event)
-            log(`[sandbox] ${JSON.stringify(event).slice(0, 100)}`)
-          })
-        }
-
-        // Mark complete
+      try {
         await payload.update({
           collection: 'runs',
           id: runId,
           overrideAccess: true,
           data: {
-            status: 'completed',
+            status: 'failed',
             completedAt: new Date().toISOString(),
             logs: logEntries.join('\n'),
-            planId: planId ?? null,
-            prUrl: prUrl ?? null,
+            error: errMsg,
           },
         })
         await payload.update({
           collection: 'commands',
           id: commandId,
           overrideAccess: true,
-          data: { status: 'completed' },
+          data: { status: 'failed' },
         })
-
-        send({ type: 'done', planId, prUrl, projectId })
-      } catch (err) {
-        const errMsg = String(err)
-        log(`ERROR: ${errMsg}`)
-
-        try {
-          await payload.update({
-            collection: 'runs',
-            id: runId,
-            overrideAccess: true,
-            data: {
-              status: 'failed',
-              completedAt: new Date().toISOString(),
-              logs: logEntries.join('\n'),
-              error: errMsg,
-            },
-          })
-          await payload.update({
-            collection: 'commands',
-            id: commandId,
-            overrideAccess: true,
-            data: { status: 'failed' },
-          })
-        } catch {
-          // DB cleanup best-effort, ignore
-        }
-
-        send({ type: 'error', message: errMsg })
-      } finally {
-        controller.close()
+      } catch {
+        // DB cleanup best-effort
       }
-    },
-  })
 
-  return new Response(stream, {
+      send({ type: 'error', message: errMsg })
+    } finally {
+      try {
+        await writer.close()
+      } catch {
+        // already closed
+      }
+    }
+  })()
+
+  return new Response(readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'X-Accel-Buffering': 'no',
-      Connection: 'keep-alive',
     },
   })
 }

@@ -23,11 +23,10 @@ interface ProjectDoc {
 interface AgentPlanDoc {
   id: number
   status: string
-  productAnalysis?: string
-  architecturePlan?: string
-  reviewNotes?: string
-  prUrl?: string
-  finalPlan?: Record<string, unknown>
+  productSpec?: { markdown?: string } | null
+  architectureDesign?: { markdown?: string } | null
+  reviewFeedback?: { markdown?: string } | null
+  finalPlan?: { prUrl?: string; title?: string; project?: string; generatedAt?: string; repoUrl?: string } | null
   createdAt?: string
 }
 
@@ -42,6 +41,16 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
 
 function getStatusCfg(status: string) {
   return STATUS_CONFIG[status] ?? { label: status, color: '#94a3b8', bg: 'rgba(30,41,59,0.5)', dot: '#475569' }
+}
+
+/** Extract the displayable text from a plan section (handles JSON { markdown } or plain string) */
+function extractMarkdown(field: unknown): string {
+  if (!field) return ''
+  if (typeof field === 'string') return field
+  if (typeof field === 'object' && field !== null && 'markdown' in field) {
+    return String((field as { markdown?: string }).markdown ?? '')
+  }
+  return ''
 }
 
 export default async function ProjectDetailPage({
@@ -68,17 +77,31 @@ export default async function ProjectDetailPage({
   if (!projectRes.docs.length) notFound()
   const project = projectRes.docs[0] as unknown as ProjectDoc
 
-  // Guard: agent-plans schema may differ — never crash the page
+  // Scope agent plans to THIS project via coding-requests join
   let plans: AgentPlanDoc[] = []
   try {
-    const plansRes = await payload.find({
-      collection: 'agent-plans',
-      limit: 20,
-      sort: '-createdAt',
+    // Step 1: find coding requests belonging to this project
+    const crRes = await payload.find({
+      collection: 'coding-requests',
+      where: { project: { equals: Number(id) } },
+      limit: 100,
       depth: 0,
       overrideAccess: true,
     })
-    plans = plansRes.docs as unknown as AgentPlanDoc[]
+    const crIds = crRes.docs.map((d) => d.id)
+
+    // Step 2: find agent plans for those coding requests
+    if (crIds.length > 0) {
+      const plansRes = await payload.find({
+        collection: 'agent-plans',
+        where: { codingRequest: { in: crIds } },
+        limit: 20,
+        sort: '-createdAt',
+        depth: 0,
+        overrideAccess: true,
+      })
+      plans = plansRes.docs as unknown as AgentPlanDoc[]
+    }
   } catch {
     // silently ignore — plans section will show empty state
   }
@@ -86,6 +109,7 @@ export default async function ProjectDetailPage({
   const cfg = getStatusCfg(project.status)
   const latestPlan = plans[0] ?? null
   const isApproved = latestPlan?.status === 'approved'
+  const latestPrUrl = latestPlan?.finalPlan?.prUrl ?? undefined
 
   return (
     <div style={{ minHeight: '100vh', background: '#070d1a', position: 'relative' }}>
@@ -170,7 +194,7 @@ export default async function ProjectDetailPage({
         {/* Main content */}
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
-          {/* AI Runners — only show when a plan is APPROVED */}
+          {/* AI Runners — only show when a plan exists */}
           {latestPlan && (
             <div
               style={{
@@ -202,10 +226,10 @@ export default async function ProjectDetailPage({
               {isApproved ? (
                 <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 280 }}>
-                    <CodeGenRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+                    <CodeGenRunner planId={latestPlan.id} prUrl={latestPrUrl} />
                   </div>
                   <div style={{ flex: 1, minWidth: 280 }}>
-                    <SandboxRunner planId={latestPlan.id} prUrl={latestPlan.prUrl} />
+                    <SandboxRunner planId={latestPlan.id} />
                   </div>
                 </div>
               ) : (
@@ -279,6 +303,11 @@ export default async function ProjectDetailPage({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {plans.map((plan) => {
                   const planCfg = getStatusCfg(plan.status)
+                  const productText = extractMarkdown(plan.productSpec)
+                  const architectText = extractMarkdown(plan.architectureDesign)
+                  const reviewText = extractMarkdown(plan.reviewFeedback)
+                  const planPrUrl = plan.finalPlan?.prUrl
+
                   return (
                     <div
                       key={plan.id}
@@ -328,34 +357,34 @@ export default async function ProjectDetailPage({
                           )}
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                          {plan.productAnalysis && (
+                          {productText && (
                             <div>
                               <div style={{ fontSize: '0.65rem', color: '#60a5fa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Product</div>
                               <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5 }}>
-                                {plan.productAnalysis.substring(0, 140)}{plan.productAnalysis.length > 140 ? '…' : ''}
+                                {productText.substring(0, 140)}{productText.length > 140 ? '…' : ''}
                               </p>
                             </div>
                           )}
-                          {plan.architecturePlan && (
+                          {architectText && (
                             <div>
                               <div style={{ fontSize: '0.65rem', color: '#c084fc', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Architecture</div>
                               <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5 }}>
-                                {plan.architecturePlan.substring(0, 140)}{plan.architecturePlan.length > 140 ? '…' : ''}
+                                {architectText.substring(0, 140)}{architectText.length > 140 ? '…' : ''}
                               </p>
                             </div>
                           )}
-                          {plan.reviewNotes && (
+                          {reviewText && (
                             <div>
                               <div style={{ fontSize: '0.65rem', color: '#34d399', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Review</div>
                               <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5 }}>
-                                {plan.reviewNotes.substring(0, 140)}{plan.reviewNotes.length > 140 ? '…' : ''}
+                                {reviewText.substring(0, 140)}{reviewText.length > 140 ? '…' : ''}
                               </p>
                             </div>
                           )}
                         </div>
-                        {plan.prUrl && (
+                        {planPrUrl && (
                           <a
-                            href={plan.prUrl}
+                            href={planPrUrl}
                             target="_blank"
                             rel="noreferrer"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: '0.75rem', fontSize: '0.78rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
@@ -378,7 +407,6 @@ export default async function ProjectDetailPage({
 
 // Inline client component for approve button
 function ApprovePlanButton({ planId }: { planId: number }) {
-  // We use a form action to handle this server-side via a separate API route
   return (
     <form action={`/api/plans/${planId}/approve`} method="POST">
       <button

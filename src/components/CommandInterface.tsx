@@ -93,18 +93,24 @@ export default function CommandInterface() {
       if (!res.ok || !res.body) {
         let errDetail = `HTTP ${res.status}`
         try {
-          const errBody = (await res.json()) as { error?: string }
-          if (errBody.error) errDetail = errBody.error
+          const errBody = await res.text()
+          try {
+            const parsed = JSON.parse(errBody) as { error?: string }
+            if (parsed.error) errDetail = parsed.error
+          } catch {
+            if (errBody.length > 0 && errBody.length < 500) errDetail = errBody
+          }
         } catch {
           // ignore
         }
-        throw new Error(`Failed: ${errDetail}`)
+        throw new Error(errDetail)
       }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
       let currentProjectId: number | undefined
+      let streamDone = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -117,9 +123,18 @@ export default function CommandInterface() {
         for (const part of parts) {
           const line = part.trim()
           if (!line.startsWith('data: ')) continue
-          try {
-            const event = JSON.parse(line.slice(6)) as Record<string, unknown>
 
+          // Parse SSE data — skip malformed lines instead of crashing
+          let event: Record<string, unknown>
+          try {
+            event = JSON.parse(line.slice(6)) as Record<string, unknown>
+          } catch {
+            // Malformed SSE data — skip this event, don't crash the stream
+            continue
+          }
+
+          // Process the parsed event
+          try {
             switch (event.type) {
               case 'created':
                 currentProjectId = event.projectId as number
@@ -159,7 +174,7 @@ export default function CommandInterface() {
                 setCurrentAgent(null)
                 break
               case 'chunk':
-                // Aggregate only — no individual log lines
+                // Aggregate only — no individual log lines for streaming tokens
                 break
               case 'github_context':
                 addLog({ type: 'github_context', text: `\ud83d\udcc2 Loaded ${event.files} repo files` })
@@ -183,22 +198,27 @@ export default function CommandInterface() {
                   projectId: currentProjectId,
                 })
                 setStatus('done')
+                streamDone = true
                 addLog({ type: 'done', text: '\ud83c\udf89 Pipeline complete!' })
                 break
               case 'error':
-                throw new Error(String(event.message ?? 'Unknown error'))
+                setError(String(event.message ?? 'Unknown error'))
+                setStatus('error')
+                streamDone = true
+                addLog({ type: 'error', text: `\u274c ${event.message ?? 'Unknown error'}` })
+                break
             }
-          } catch (parseErr) {
-            const msg = String(parseErr)
-            if (msg.includes('Error:') || msg.includes('failed') || msg.includes('Failed')) {
-              throw parseErr
-            }
-            // ignore JSON parse noise
+          } catch (handlerErr) {
+            // Event handler error — log it but don't crash the stream
+            addLog({ type: 'error', text: `\u274c Event handler error: ${String(handlerErr)}` })
           }
         }
       }
 
-      if (status !== 'done') setStatus('done')
+      if (!streamDone) {
+        setStatus('done')
+        addLog({ type: 'done', text: '\ud83c\udf89 Stream ended' })
+      }
     } catch (err) {
       if (String(err).includes('AbortError') || String(err).includes('abort')) return
       const msg = String(err)

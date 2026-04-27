@@ -11,7 +11,8 @@
  * 7. Create GitHub branch + file + PR
  * 8. Update CodingRequest status
  *
- * Plan parser uses OpenAI o4-mini (reasoning model) for smart routing decisions.
+ * All Payload operations use overrideAccess: true because these are
+ * system operations validated at the API route entry point.
  */
 
 import type { Payload } from 'payload'
@@ -45,7 +46,6 @@ export type SSEEvent =
 async function parseReviewVerdict(reviewText: string): Promise<boolean> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    // Graceful fallback to simple heuristic
     return reviewText.toLowerCase().includes('approved')
   }
 
@@ -92,6 +92,7 @@ export async function runOrchestrator(
     collection: 'coding-requests',
     id: codingRequestId,
     depth: 2,
+    overrideAccess: true,
   })
 
   if (!codingRequest) {
@@ -101,6 +102,7 @@ export async function runOrchestrator(
   await payload.update({
     collection: 'coding-requests',
     id: codingRequestId,
+    overrideAccess: true,
     data: { status: 'planning' },
   })
 
@@ -144,6 +146,7 @@ export async function runOrchestrator(
 
   const productRun = await payload.create({
     collection: 'agent-runs',
+    overrideAccess: true,
     data: {
       agentName: 'product',
       codingRequest: codingRequestId,
@@ -166,6 +169,7 @@ export async function runOrchestrator(
     await payload.update({
       collection: 'agent-runs',
       id: productRun.id,
+      overrideAccess: true,
       data: {
         status: 'completed',
         output: { markdown: productSpec },
@@ -176,6 +180,7 @@ export async function runOrchestrator(
     await payload.update({
       collection: 'agent-runs',
       id: productRun.id,
+      overrideAccess: true,
       data: { status: 'failed', errorMessage: String(err), durationMs: Date.now() - productStart },
     })
     throw new Error(`Product Agent failed: ${String(err)}`)
@@ -192,6 +197,7 @@ export async function runOrchestrator(
 
   const architectRun = await payload.create({
     collection: 'agent-runs',
+    overrideAccess: true,
     data: {
       agentName: 'architect',
       codingRequest: codingRequestId,
@@ -214,6 +220,7 @@ export async function runOrchestrator(
     await payload.update({
       collection: 'agent-runs',
       id: architectRun.id,
+      overrideAccess: true,
       data: {
         status: 'completed',
         output: { markdown: architectureDesign },
@@ -224,6 +231,7 @@ export async function runOrchestrator(
     await payload.update({
       collection: 'agent-runs',
       id: architectRun.id,
+      overrideAccess: true,
       data: {
         status: 'failed',
         errorMessage: String(err),
@@ -244,6 +252,7 @@ export async function runOrchestrator(
 
   const reviewerRun = await payload.create({
     collection: 'agent-runs',
+    overrideAccess: true,
     data: {
       agentName: 'reviewer',
       codingRequest: codingRequestId,
@@ -261,6 +270,7 @@ export async function runOrchestrator(
     await payload.update({
       collection: 'agent-runs',
       id: reviewerRun.id,
+      overrideAccess: true,
       data: {
         status: 'completed',
         output: { markdown: reviewFeedback },
@@ -271,6 +281,7 @@ export async function runOrchestrator(
     await payload.update({
       collection: 'agent-runs',
       id: reviewerRun.id,
+      overrideAccess: true,
       data: {
         status: 'failed',
         errorMessage: String(err),
@@ -288,6 +299,7 @@ export async function runOrchestrator(
   // 7. Save AgentPlan
   const agentPlan = await payload.create({
     collection: 'agent-plans',
+    overrideAccess: true,
     data: {
       codingRequest: codingRequestId,
       productSpec: { markdown: productSpec },
@@ -364,6 +376,7 @@ ${reviewFeedback}
       await payload.update({
         collection: 'agent-plans',
         id: agentPlan.id,
+        overrideAccess: true,
         data: {
           finalPlan: {
             title: codingRequest.title,
@@ -383,6 +396,7 @@ ${reviewFeedback}
   await payload.update({
     collection: 'coding-requests',
     id: codingRequestId,
+    overrideAccess: true,
     data: { status: isApproved ? 'approved' : 'submitted' },
   })
 

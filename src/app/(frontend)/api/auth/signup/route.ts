@@ -19,9 +19,12 @@ export async function POST(req: NextRequest) {
     const payloadConfig = await config
     const payload = await getPayload({ config: payloadConfig })
 
+    // overrideAccess: true because Users.create requires super_admin,
+    // but signup is a public action. Explicitly set role to 'developer'.
     await payload.create({
       collection: 'users',
-      data: { email, password },
+      overrideAccess: true,
+      data: { email, password, role: 'developer' },
     })
 
     // Auto-login after signup
@@ -30,8 +33,12 @@ export async function POST(req: NextRequest) {
       data: { email, password },
     })
 
+    if (!result?.token) {
+      return NextResponse.json({ error: 'Account created but login failed' }, { status: 500 })
+    }
+
     const response = NextResponse.json({ success: true, user: { email } })
-    response.cookies.set('payload-token', result.token as string, {
+    response.cookies.set('payload-token', result.token, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
