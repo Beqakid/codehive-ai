@@ -5,6 +5,7 @@
  * plan_only → orchestrator, plan_code → + codegen, full_build → + sandbox.
  * Uses TransformStream for Cloudflare Workers SSE compatibility.
  * @note Rate limited to 5 commands per user per minute.
+ * @note Codegen is GATED on plan approval — if reviewer says needs_revision, pipeline stops.
  */
 
 export const dynamic = 'force-dynamic'
@@ -205,6 +206,7 @@ export async function POST(request: Request) {
       // ── Phase A: Orchestrator (plan) ────────────────────────────────────
       let planId: number | undefined
       let prUrl: string | undefined
+      let verdictApproved = false
 
       await runOrchestrator(payload, codingRequestId, (event) => {
         send(event)
@@ -216,64 +218,82 @@ export async function POST(request: Request) {
           prUrl = event.url
           log(`PR created: ${prUrl}`)
         }
+        if (event.type === 'verdict') {
+          verdictApproved = event.approved
+          log(`Verdict: ${event.approved ? 'APPROVED' : 'NEEDS_REVISION'} (score: ${event.score ?? 'N/A'})`)
+          if (!event.approved) {
+            log(`Verdict reason: ${event.reason}`)
+          }
+        }
         if (event.type === 'chunk') {
           log(`[${event.agent}] ${event.text.slice(0, 80)}`)
         }
       })
 
-      // ── Phase B: Code generation ──────────────────────────────────────
+      // ── Phase B: Code generation (GATED on approval) ──────────────────
       if (mode === 'plan_code' || mode === 'full_build') {
-        if (!planId) throw new Error('No plan ID — cannot generate code without an approved plan')
-        send({ type: 'phase', phase: 'codegen', message: '\u26a1 Starting code generation...' })
-        log('Starting code generation')
+        if (!planId) throw new Error('No plan ID — cannot generate code without a plan')
 
-        await runCodeOrchestrator(payload, planId, (event) => {
-          send(event)
-          if (event.type === 'chunk') log(`[codegen] ${(event as { text?: string }).text?.slice(0, 80) ?? ''}`)
-          if (event.type === 'file_done') log(`Committed: ${(event as { file?: string }).file ?? ''}`)
-        })
-      }
+        if (!verdictApproved) {
+          // ⛔ PIPELINE GATE: Reviewer said needs revision — stop here
+          send({
+            type: 'phase',
+            phase: 'codegen_blocked',
+            message: '⛔ Code generation blocked — reviewer flagged this plan as needing revision. Approve the plan manually on the project page to proceed.',
+          })
+          log('Code generation BLOCKED — plan needs revision')
+        } else {
+          send({ type: 'phase', phase: 'codegen', message: '\u26a1 Starting code generation...' })
+          log('Starting code generation')
 
-      // ── Phase C: Sandbox ──────────────────────────────────────────────
-      if (mode === 'full_build') {
-        if (!prUrl) throw new Error('No PR URL — cannot run sandbox without a PR')
-        send({ type: 'phase', phase: 'sandbox', message: '\ud83e\uddea Triggering sandbox tests...' })
-        log('Starting sandbox')
+          await runCodeOrchestrator(payload, planId, (event) => {
+            send(event)
+            if (event.type === 'chunk') log(`[codegen] ${(event as { text?: string }).text?.slice(0, 80) ?? ''}`)
+            if (event.type === 'file_done') log(`Committed: ${(event as { file?: string }).file ?? ''}`)
+          })
 
-        // Parse PR URL → owner/repo + fetch branch name from GitHub PR API
-        const repoMatch = prUrl.match(/github\.com\/([^/]+)\/([^/]+)/)
-        const prNumMatch = prUrl.match(/\/pull\/(\d+)/)
-        if (!repoMatch) throw new Error(`Could not parse PR URL: ${prUrl}`)
+          // ── Phase C: Sandbox (only if codegen ran) ────────────────────
+          if (mode === 'full_build') {
+            if (!prUrl) throw new Error('No PR URL — cannot run sandbox without a PR')
+            send({ type: 'phase', phase: 'sandbox', message: '\ud83e\uddea Triggering sandbox tests...' })
+            log('Starting sandbox')
 
-        const sbOwner = repoMatch[1]
-        const sbRepo = repoMatch[2]
-        let sbBranch = 'main'
+            // Parse PR URL → owner/repo + fetch branch name from GitHub PR API
+            const repoMatch = prUrl.match(/github\.com\/([^/]+)\/([^/]+)/)
+            const prNumMatch = prUrl.match(/\/pull\/(\d+)/)
+            if (!repoMatch) throw new Error(`Could not parse PR URL: ${prUrl}`)
 
-        if (prNumMatch) {
-          try {
-            const prResp = await fetch(
-              `https://api.github.com/repos/${sbOwner}/${sbRepo}/pulls/${prNumMatch[1]}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-                  Accept: 'application/vnd.github.v3+json',
-                  'User-Agent': 'codehive-ai/4.0',
-                },
-              },
-            )
-            if (prResp.ok) {
-              const prData = (await prResp.json()) as { head?: { ref?: string } }
-              sbBranch = prData.head?.ref ?? 'main'
+            const sbOwner = repoMatch[1]
+            const sbRepo = repoMatch[2]
+            let sbBranch = 'main'
+
+            if (prNumMatch) {
+              try {
+                const prResp = await fetch(
+                  `https://api.github.com/repos/${sbOwner}/${sbRepo}/pulls/${prNumMatch[1]}`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                      Accept: 'application/vnd.github.v3+json',
+                      'User-Agent': 'codehive-ai/4.0',
+                    },
+                  },
+                )
+                if (prResp.ok) {
+                  const prData = (await prResp.json()) as { head?: { ref?: string } }
+                  sbBranch = prData.head?.ref ?? 'main'
+                }
+              } catch {
+                // fallback to main
+              }
             }
-          } catch {
-            // fallback to main
+
+            await runSandboxAgent(sbOwner, sbRepo, sbBranch, (event) => {
+              send(event)
+              log(`[sandbox] ${JSON.stringify(event).slice(0, 100)}`)
+            })
           }
         }
-
-        await runSandboxAgent(sbOwner, sbRepo, sbBranch, (event) => {
-          send(event)
-          log(`[sandbox] ${JSON.stringify(event).slice(0, 100)}`)
-        })
       }
 
       // ── Mark complete (best-effort — never blocks 'done' event) ───────

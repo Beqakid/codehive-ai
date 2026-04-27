@@ -24,6 +24,8 @@ interface ProjectDoc {
 interface AgentPlanDoc {
   id: number
   status: string
+  verdictReason?: string | null
+  reviewScore?: number | null
   productSpec?: { markdown?: string } | null
   architectureDesign?: { markdown?: string } | null
   reviewFeedback?: { markdown?: string } | null
@@ -36,7 +38,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   planning: { label: 'Planning', color: '#fbbf24', bg: 'rgba(245,158,11,0.12)', dot: '#f59e0b' },
   submitted: { label: 'Submitted', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', dot: '#3b82f6' },
   approved: { label: 'Approved', color: '#c084fc', bg: 'rgba(192,132,252,0.12)', dot: '#a855f7' },
+  needs_revision: { label: 'Needs Revision', color: '#fb923c', bg: 'rgba(249,115,22,0.12)', dot: '#f97316' },
   draft: { label: 'Draft', color: '#94a3b8', bg: 'rgba(71,85,105,0.12)', dot: '#475569' },
+  rejected: { label: 'Rejected', color: '#f87171', bg: 'rgba(248,113,113,0.12)', dot: '#ef4444' },
   archived: { label: 'Archived', color: '#475569', bg: 'rgba(71,85,105,0.12)', dot: '#334155' },
 }
 
@@ -106,6 +110,7 @@ export default async function ProjectDetailPage({
   const cfg = getStatusCfg(project.status)
   const latestPlan = plans[0] ?? null
   const isApproved = latestPlan?.status === 'approved'
+  const isNeedsRevision = latestPlan?.status === 'needs_revision'
   const latestPrUrl = latestPlan?.finalPlan?.prUrl ?? undefined
 
   return (
@@ -217,6 +222,21 @@ export default async function ProjectDetailPage({
                 >
                   {getStatusCfg(latestPlan.status).label}
                 </span>
+                {latestPlan.reviewScore != null && (
+                  <span
+                    style={{
+                      fontSize: '0.65rem',
+                      padding: '2px 8px',
+                      borderRadius: 9999,
+                      background: latestPlan.reviewScore >= 7.5 ? 'rgba(16,185,129,0.12)' : 'rgba(249,115,22,0.12)',
+                      color: latestPlan.reviewScore >= 7.5 ? '#34d399' : '#fb923c',
+                      fontWeight: 700,
+                      border: `1px solid ${latestPlan.reviewScore >= 7.5 ? '#10b981' : '#f97316'}40`,
+                    }}
+                  >
+                    Score: {latestPlan.reviewScore}/10
+                  </span>
+                )}
               </div>
 
               {isApproved ? (
@@ -232,6 +252,57 @@ export default async function ProjectDetailPage({
                   {/* Run & Fix Until Stable — full width below the two runners */}
                   <FixRunner planId={latestPlan.id} prUrl={latestPrUrl} />
                 </>
+              ) : isNeedsRevision ? (
+                <div
+                  style={{
+                    padding: '1.5rem',
+                    background: 'rgba(249,115,22,0.06)',
+                    border: '1px solid rgba(249,115,22,0.3)',
+                    borderRadius: 12,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1rem' }}>
+                    <div style={{ fontSize: '1.5rem', lineHeight: 1 }}>⚠️</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: '#fb923c', fontWeight: 800, fontSize: '0.95rem', marginBottom: '0.35rem' }}>
+                        Reviewer Flagged This Plan
+                      </div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.82rem', lineHeight: 1.6 }}>
+                        The AI reviewer determined this plan needs revision before code generation can proceed.
+                        {latestPlan.reviewScore != null && (
+                          <> Review score: <strong style={{ color: '#fb923c' }}>{latestPlan.reviewScore}/10</strong> (threshold: 7.5).</>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Reviewer concerns */}
+                  {latestPlan.verdictReason && (
+                    <div
+                      style={{
+                        background: 'rgba(7,13,26,0.6)',
+                        border: '1px solid rgba(30,58,95,0.5)',
+                        borderRadius: 10,
+                        padding: '1rem 1.25rem',
+                        marginBottom: '1.25rem',
+                      }}
+                    >
+                      <div style={{ fontSize: '0.68rem', color: '#f97316', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>
+                        Reviewer Concerns
+                      </div>
+                      <div style={{ color: '#cbd5e1', fontSize: '0.82rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                        {latestPlan.verdictReason}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <ApprovePlanButton planId={latestPlan.id} variant="override" />
+                    <span style={{ color: '#475569', fontSize: '0.75rem' }}>
+                      Override will approve this plan and allow code generation to proceed.
+                    </span>
+                  </div>
+                </div>
               ) : (
                 <div
                   style={{
@@ -349,6 +420,20 @@ export default async function ProjectDetailPage({
                             >
                               {planCfg.label}
                             </span>
+                            {plan.reviewScore != null && (
+                              <span
+                                style={{
+                                  fontSize: '0.62rem',
+                                  padding: '2px 7px',
+                                  borderRadius: 9999,
+                                  background: plan.reviewScore >= 7.5 ? 'rgba(16,185,129,0.12)' : 'rgba(249,115,22,0.12)',
+                                  color: plan.reviewScore >= 7.5 ? '#34d399' : '#fb923c',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {plan.reviewScore}/10
+                              </span>
+                            )}
                           </div>
                           {plan.createdAt && (
                             <span style={{ fontSize: '0.7rem', color: '#334155' }}>
@@ -405,14 +490,17 @@ export default async function ProjectDetailPage({
   )
 }
 
-function ApprovePlanButton({ planId }: { planId: number }) {
+function ApprovePlanButton({ planId, variant }: { planId: number; variant?: 'override' }) {
+  const isOverride = variant === 'override'
   return (
     <form action={`/api/plans/${planId}/approve`} method="POST">
       <button
         type="submit"
         style={{
-          padding: '0.5rem 1.2rem',
-          background: 'linear-gradient(135deg, #d97706, #f59e0b)',
+          padding: '0.55rem 1.3rem',
+          background: isOverride
+            ? 'linear-gradient(135deg, #ea580c, #f97316)'
+            : 'linear-gradient(135deg, #d97706, #f59e0b)',
           color: '#000',
           border: 'none',
           borderRadius: 8,
@@ -422,7 +510,7 @@ function ApprovePlanButton({ planId }: { planId: number }) {
           whiteSpace: 'nowrap',
         }}
       >
-        ✅ Approve Plan
+        {isOverride ? '⚡ Override & Approve' : '✅ Approve Plan'}
       </button>
     </form>
   )

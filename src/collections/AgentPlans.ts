@@ -52,11 +52,26 @@ export const AgentPlans: CollectionConfig = {
       },
     },
     {
+      name: 'verdictReason',
+      type: 'textarea',
+      admin: {
+        description: 'Why the reviewer approved or flagged this plan',
+      },
+    },
+    {
+      name: 'reviewScore',
+      type: 'number',
+      admin: {
+        description: 'Numeric score from the reviewer (0-10)',
+      },
+    },
+    {
       name: 'status',
       type: 'select',
       defaultValue: 'draft',
       options: [
         { label: 'Draft', value: 'draft' },
+        { label: 'Needs Revision', value: 'needs_revision' },
         { label: 'Approved', value: 'approved' },
         { label: 'Rejected', value: 'rejected' },
         { label: 'Superseded', value: 'superseded' },
