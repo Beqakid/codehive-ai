@@ -9,7 +9,7 @@ export const Commands: CollectionConfig = {
   access: {
     create: anyLoggedInAccess,
     read: anyLoggedInAccess,
-    update: adminOrAboveAccess,
+    update: anyLoggedInAccess,
     delete: adminOrAboveAccess,
   },
   fields: [

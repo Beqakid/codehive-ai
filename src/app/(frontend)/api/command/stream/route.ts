@@ -48,12 +48,22 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
-  const payloadConfig = await config
-  const payload = await getPayload({ config: payloadConfig })
+  let payload: Awaited<ReturnType<typeof getPayload>>
+  try {
+    const payloadConfig = await config
+    payload = await getPayload({ config: payloadConfig })
+  } catch (err) {
+    return Response.json({ error: `Payload init failed: ${String(err)}` }, { status: 500 })
+  }
 
-  const { user } = await payload.auth({ headers: new Headers(request.headers) })
-  if (!user) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  // Auth check
+  try {
+    const { user } = await payload.auth({ headers: new Headers(request.headers) })
+    if (!user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  } catch (err) {
+    return Response.json({ error: `Auth failed: ${String(err)}` }, { status: 500 })
   }
 
   const stream = new ReadableStream({
@@ -66,11 +76,13 @@ export async function POST(request: Request) {
       await payload.update({
         collection: 'runs',
         id: runId,
+        overrideAccess: true,
         data: { status: 'running', startedAt: new Date().toISOString() },
       })
       await payload.update({
         collection: 'commands',
         id: commandId,
+        overrideAccess: true,
         data: { status: 'running' },
       })
 
@@ -106,7 +118,6 @@ export async function POST(request: Request) {
           send({ type: 'phase', phase: 'codegen', message: '⚡ Starting code generation...' })
           log('Starting code generation')
 
-          // runCodeOrchestrator takes (payload, planId, onEvent) — 3 args
           await runCodeOrchestrator(
             payload,
             planId,
@@ -135,6 +146,7 @@ export async function POST(request: Request) {
         await payload.update({
           collection: 'runs',
           id: runId,
+          overrideAccess: true,
           data: {
             status: 'completed',
             completedAt: new Date().toISOString(),
@@ -146,6 +158,7 @@ export async function POST(request: Request) {
         await payload.update({
           collection: 'commands',
           id: commandId,
+          overrideAccess: true,
           data: { status: 'completed' },
         })
 
@@ -157,6 +170,7 @@ export async function POST(request: Request) {
         await payload.update({
           collection: 'runs',
           id: runId,
+          overrideAccess: true,
           data: {
             status: 'failed',
             completedAt: new Date().toISOString(),
@@ -167,6 +181,7 @@ export async function POST(request: Request) {
         await payload.update({
           collection: 'commands',
           id: commandId,
+          overrideAccess: true,
           data: { status: 'failed' },
         })
 
