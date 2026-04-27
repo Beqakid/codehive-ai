@@ -26,7 +26,14 @@ export default async function DashboardPage() {
   const headers = await getHeaders()
   const payloadConfig = await config
   const payload = await getPayload({ config: payloadConfig })
-  const { user } = await payload.auth({ headers })
+
+  let user: { id: number; email?: string } | null = null
+  try {
+    const authResult = await payload.auth({ headers })
+    user = (authResult?.user as { id: number; email?: string } | null) ?? null
+  } catch {
+    // auth can throw on CF Workers — treat as unauthenticated
+  }
 
   if (!user) {
     redirect('/login')
@@ -37,6 +44,10 @@ export default async function DashboardPage() {
     limit: 100,
     sort: '-createdAt',
     depth: 0,
+    overrideAccess: true,
+    where: {
+      owner: { equals: user.id },
+    },
   })
 
   const projectList = projects.docs.map((p) => {
