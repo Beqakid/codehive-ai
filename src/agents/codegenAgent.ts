@@ -2,10 +2,11 @@
  * Codegen Agent — Phase 3
  *
  * Given a plan markdown and a specific file to generate,
- * produces implementation code using GPT-4.1 streaming.
+ * produces implementation code using Claude Sonnet 4.6 streaming.
  * Also provides parsePlanForFiles() to extract the file list from a plan.
  */
 
+import { parseAnthropicStream } from '../lib/stream-parsers'
 import { parseOpenAIStream } from '../lib/stream-parsers'
 import { withRetry } from '../lib/retry'
 
@@ -20,8 +21,8 @@ export async function runCodegenAgent(
   input: CodegenInput,
   onChunk: (text: string) => void,
 ): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured')
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured')
 
   const systemPrompt = `You are an expert software engineer. Generate clean, production-quality TypeScript/React/Node code. Output ONLY the file contents — no explanations, no markdown fences, no preamble. Just the raw code ready to save as-is.`
 
@@ -31,37 +32,36 @@ export async function runCodegenAgent(
 **Purpose:** ${input.fileDescription}
 
 ## Full Agent Plan
-${input.planMarkdown.substring(0, 6000)}
+${input.planMarkdown.substring(0, 8000)}
 
 Output only the complete file contents for ${input.filePath}. No markdown fences. No explanations.`
 
   const response = await withRetry(async () => {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
+        model: 'claude-sonnet-4-6',
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
         stream: true,
-        max_tokens: 4000,
+        max_tokens: 8000,
       }),
     })
 
     if (!res.ok || !res.body) {
       const err = await res.text()
-      throw new Error(`OpenAI API error ${res.status}: ${err}`)
+      throw new Error(`Anthropic API error ${res.status}: ${err}`)
     }
 
     return res
   })
 
-  return parseOpenAIStream(response.body!, onChunk)
+  return parseAnthropicStream(response.body!, onChunk)
 }
 
 /** Ask GPT-4.1-mini to extract the list of files from the plan markdown. */
