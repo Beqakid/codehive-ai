@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useCallback, useEffect } from 'react'
+import Link from 'next/link'
 
 interface Project {
   id: number
@@ -427,7 +428,12 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
       {/* Project grid */}
       {projects.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-          <p style={{ color: '#6b7280', margin: 0 }}>No projects yet. <a href="/admin/collections/projects/create" style={{ color: '#3b82f6' }}>Create one</a></p>
+          <p style={{ color: '#6b7280', margin: 0 }}>
+            No projects yet.{' '}
+            <Link href="/admin/collections/projects/create" style={{ color: '#3b82f6' }}>
+              Create one
+            </Link>
+          </p>
         </div>
       ) : (
         <div
