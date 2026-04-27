@@ -20,8 +20,13 @@ export async function POST(req: NextRequest) {
       data: { email, password },
     })
 
+    // result.user and result.token are optional in Payload's LoginResult type
+    if (!result.user || !result.token) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
+    }
+
     const response = NextResponse.json({ success: true, user: { email: result.user.email } })
-    response.cookies.set('payload-token', result.token as string, {
+    response.cookies.set('payload-token', result.token, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
