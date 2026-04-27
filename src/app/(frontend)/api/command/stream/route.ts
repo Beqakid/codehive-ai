@@ -106,15 +106,14 @@ export async function POST(request: Request) {
           send({ type: 'phase', phase: 'codegen', message: '⚡ Starting code generation...' })
           log('Starting code generation')
 
+          // runCodeOrchestrator takes (payload, planId, onEvent) — 3 args
           await runCodeOrchestrator(
             payload,
             planId,
-            codingRequestId,
             (event) => {
               send(event)
-              if (event.type === 'chunk') log(`[codegen] ${event.text?.slice(0, 80) ?? ''}`)
-              if (event.type === 'file_committed')
-                log(`Committed: ${(event as unknown as { file: string }).file}`)
+              if (event.type === 'chunk') log(`[codegen] ${event.text.slice(0, 80)}`)
+              if (event.type === 'file_done') log(`Committed: ${event.file}`)
             },
           )
         }
