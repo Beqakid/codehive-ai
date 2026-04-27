@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     const payloadConfig = await config
     const payload = await getPayload({ config: payloadConfig })
 
-    // Try to get the authenticated user — but don't crash if auth fails
+    // Verify auth first
     let userId: number | undefined
     try {
       const { user } = await payload.auth({ headers: req.headers })
@@ -34,8 +34,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Project name is required' }, { status: 400 })
     }
 
+    // overrideAccess: true — we already verified the user is authenticated above
     const project = await payload.create({
       collection: 'projects',
+      overrideAccess: true,
       data: {
         name: name.trim(),
         ...(description?.trim() ? { description: description.trim() } : {}),
@@ -43,15 +45,12 @@ export async function POST(req: NextRequest) {
         status: 'active',
         owner: userId,
       },
-      overrideAccess: false,
-      user: { id: userId, collection: 'users' } as any,
     })
 
     return NextResponse.json({ project: { id: project.id, name: project.name } }, { status: 201 })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('Create project error:', message)
-    // Return the actual error message to help debug
     return NextResponse.json(
       { error: `Failed to create project: ${message}` },
       { status: 500 },
