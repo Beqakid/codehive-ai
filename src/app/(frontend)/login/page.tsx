@@ -29,7 +29,7 @@ export default function LoginPage() {
         return
       }
 
-      window.location.href = '/projects'
+      window.location.href = '/dashboard'
     } catch {
       setError('Something went wrong. Please try again.')
       setLoading(false)
@@ -44,25 +44,27 @@ export default function LoginPage() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '2rem',
+        background: '#070d1a',
       }}
     >
       <div
         style={{
-          background: '#fff',
-          border: '1px solid #e5e7eb',
-          borderRadius: 12,
+          background: 'rgba(13,21,38,0.85)',
+          border: '1px solid rgba(30,58,95,0.7)',
+          borderRadius: 16,
           padding: '2.5rem',
           width: '100%',
           maxWidth: 420,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          backdropFilter: 'blur(12px)',
         }}
       >
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🐝</div>
-          <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, color: '#0f172a' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🐝</div>
+          <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.02em' }}>
             Sign in to CodeHive
           </h1>
-          <p style={{ margin: '0.5rem 0 0', color: '#6b7280', fontSize: '0.9rem' }}>
+          <p style={{ margin: '0.5rem 0 0', color: '#64748b', fontSize: '0.9rem' }}>
             Your AI Coding Command Center
           </p>
         </div>
@@ -77,6 +79,8 @@ export default function LoginPage() {
               required
               placeholder="you@example.com"
               style={inputStyle}
+              onFocus={(e) => { e.currentTarget.style.borderColor = '#f59e0b'; e.currentTarget.style.boxShadow = '0 0 0 2px rgba(245,158,11,0.2)' }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(30,58,95,0.7)'; e.currentTarget.style.boxShadow = 'none' }}
             />
           </div>
 
@@ -89,17 +93,19 @@ export default function LoginPage() {
               required
               placeholder="••••••••"
               style={inputStyle}
+              onFocus={(e) => { e.currentTarget.style.borderColor = '#f59e0b'; e.currentTarget.style.boxShadow = '0 0 0 2px rgba(245,158,11,0.2)' }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(30,58,95,0.7)'; e.currentTarget.style.boxShadow = 'none' }}
             />
           </div>
 
           {error && (
             <div
               style={{
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: 6,
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 8,
                 padding: '0.6rem 0.9rem',
-                color: '#991b1b',
+                color: '#f87171',
                 fontSize: '0.85rem',
                 marginBottom: '1rem',
               }}
@@ -108,14 +114,30 @@ export default function LoginPage() {
             </div>
           )}
 
-          <button type="submit" disabled={loading} style={btnStyle}>
-            {loading ? 'Signing in…' : 'Sign in'}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              background: loading ? 'rgba(245,158,11,0.5)' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+              color: '#000',
+              border: 'none',
+              borderRadius: 9,
+              fontSize: '0.95rem',
+              fontWeight: 700,
+              cursor: loading ? 'not-allowed' : 'pointer',
+              boxShadow: '0 4px 16px rgba(245,158,11,0.25)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {loading ? 'Signing in…' : 'Sign in →'}
           </button>
         </form>
 
-        <p style={{ margin: '1.5rem 0 0', textAlign: 'center', fontSize: '0.85rem', color: '#6b7280' }}>
+        <p style={{ margin: '1.5rem 0 0', textAlign: 'center', fontSize: '0.85rem', color: '#64748b' }}>
           Don&apos;t have an account?{' '}
-          <Link href="/signup" style={{ color: '#10b981', fontWeight: 600, textDecoration: 'none' }}>
+          <Link href="/signup" style={{ color: '#f59e0b', fontWeight: 600, textDecoration: 'none' }}>
             Sign up
           </Link>
         </p>
@@ -128,29 +150,19 @@ const labelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: '0.85rem',
   fontWeight: 600,
-  color: '#374151',
+  color: '#94a3b8',
   marginBottom: '0.4rem',
 }
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
-  padding: '0.6rem 0.85rem',
-  border: '1px solid #d1d5db',
-  borderRadius: 6,
+  padding: '0.65rem 0.85rem',
+  border: '1px solid rgba(30,58,95,0.7)',
+  borderRadius: 8,
   fontSize: '0.95rem',
-  color: '#0f172a',
+  color: '#e2e8f0',
+  background: 'rgba(7,13,26,0.6)',
   outline: 'none',
   boxSizing: 'border-box',
-}
-
-const btnStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '0.7rem',
-  background: '#0f172a',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 6,
-  fontSize: '0.95rem',
-  fontWeight: 600,
-  cursor: 'pointer',
+  transition: 'border-color 0.2s, box-shadow 0.2s',
 }
