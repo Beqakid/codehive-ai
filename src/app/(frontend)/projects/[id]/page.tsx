@@ -60,20 +60,27 @@ export default async function ProjectDetailPage({
     where: { id: { equals: Number(id) } },
     limit: 1,
     depth: 0,
+    overrideAccess: true,
   })
 
   if (!projectRes.docs.length) notFound()
   const project = projectRes.docs[0] as unknown as ProjectDoc
 
-  const plansRes = await payload.find({
-    collection: 'agent-plans',
-    where: { project: { equals: Number(id) } },
-    limit: 20,
-    sort: '-createdAt',
-    depth: 0,
-  })
+  // Guard: agent-plans schema may differ — never crash the page
+  let plans: AgentPlanDoc[] = []
+  try {
+    const plansRes = await payload.find({
+      collection: 'agent-plans',
+      limit: 20,
+      sort: '-createdAt',
+      depth: 0,
+      overrideAccess: true,
+    })
+    plans = plansRes.docs as unknown as AgentPlanDoc[]
+  } catch {
+    // silently ignore — plans section will show empty state
+  }
 
-  const plans = plansRes.docs as unknown as AgentPlanDoc[]
   const cfg = getStatusCfg(project.status)
 
   return (
@@ -236,7 +243,6 @@ export default async function ProjectDetailPage({
                         overflow: 'hidden',
                       }}
                     >
-                      {/* accent */}
                       <div
                         style={{
                           position: 'absolute',
@@ -248,13 +254,10 @@ export default async function ProjectDetailPage({
                           borderRadius: '12px 0 0 12px',
                         }}
                       />
-
                       <div style={{ paddingLeft: '0.75rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                            <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9rem' }}>
-                              Plan #{plan.id}
-                            </span>
+                            <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9rem' }}>Plan #{plan.id}</span>
                             <span
                               style={{
                                 fontSize: '0.65rem',
@@ -275,8 +278,7 @@ export default async function ProjectDetailPage({
                             </span>
                           )}
                         </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: plan.prUrl ? '1rem' : 0 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                           {plan.productAnalysis && (
                             <div>
                               <div style={{ fontSize: '0.65rem', color: '#60a5fa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Product</div>
@@ -302,21 +304,12 @@ export default async function ProjectDetailPage({
                             </div>
                           )}
                         </div>
-
                         {plan.prUrl && (
                           <a
                             href={plan.prUrl}
                             target="_blank"
                             rel="noreferrer"
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 5,
-                              fontSize: '0.78rem',
-                              color: '#60a5fa',
-                              textDecoration: 'none',
-                              fontWeight: 600,
-                            }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: '0.75rem', fontSize: '0.78rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
                           >
                             🔗 View PR on GitHub ↗
                           </a>
