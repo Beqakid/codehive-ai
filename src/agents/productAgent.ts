@@ -5,6 +5,8 @@
  */
 
 import type { RepoContext } from '../lib/github'
+import { parseOpenAIStream } from '../lib/stream-parsers'
+import { withRetry } from '../lib/retry'
 
 // Legacy interface kept for type compatibility
 export interface ProductSpec {
@@ -51,66 +53,31 @@ Write a product specification including:
 3. **Scope** — what's in and out of scope
 4. **Estimated Complexity** — low/medium/high with brief reasoning`
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      stream: true,
-      max_tokens: 2000,
-    }),
+  const response = await withRetry(async () => {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: true,
+        max_tokens: 2000,
+      }),
+    })
+
+    if (!res.ok || !res.body) {
+      const err = await res.text()
+      throw new Error(`OpenAI API error ${res.status}: ${err}`)
+    }
+
+    return res
   })
 
-  if (!response.ok || !response.body) {
-    const err = await response.text()
-    throw new Error(`OpenAI API error ${response.status}: ${err}`)
-  }
-
-  return parseOpenAIStream(response.body, onChunk)
-}
-
-async function parseOpenAIStream(
-  body: ReadableStream<Uint8Array>,
-  onChunk: (text: string) => void,
-): Promise<string> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let fullContent = ''
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6).trim()
-      if (data === '[DONE]') continue
-      try {
-        const json = JSON.parse(data) as {
-          choices?: Array<{ delta?: { content?: string } }>
-        }
-        const text = json.choices?.[0]?.delta?.content || ''
-        if (text) {
-          fullContent += text
-          onChunk(text)
-        }
-      } catch {
-        // skip malformed chunks
-      }
-    }
-  }
-
-  return fullContent
+  return parseOpenAIStream(response.body!, onChunk)
 }

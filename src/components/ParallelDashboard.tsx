@@ -17,26 +17,16 @@ interface RunState {
   currentStep: string
   progress: number
   planId?: number
+  projectId?: number
   error?: string
 }
 
 const STEPS = ['Product Agent', 'Architect Agent', 'Reviewer Agent', 'Creating PR', 'Done']
 
-const stepKeywords: Record<string, number> = {
+const agentToStep: Record<string, number> = {
   product: 0,
   architect: 1,
   reviewer: 2,
-  'pull request': 3,
-  'pr created': 4,
-  complete: 4,
-}
-
-function detectStep(log: string): number {
-  const lower = log.toLowerCase()
-  for (const [kw, idx] of Object.entries(stepKeywords)) {
-    if (lower.includes(kw)) return idx
-  }
-  return -1
 }
 
 function StepBadges({ currentStep, status }: { currentStep: number; status: RunState['status'] }) {
@@ -246,7 +236,7 @@ function ProjectRunCard({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
         {(run.status === 'done' || run.planId) ? (
           <Link
-            href={`/projects/${project.id}`}
+            href={`/projects/${run.projectId ?? project.id}`}
             style={{ fontSize: '0.72rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
           >
             View project →
@@ -299,13 +289,15 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
       })
 
       try {
-        const res = await fetch('/api/agent-plan/stream', {
+        // Uses the unified /api/command SSE endpoint
+        const res = await fetch('/api/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({
-            projectId: project.id,
             prompt,
-            repoUrl: project.repoUrl || 'https://github.com/Beqakid/codehive-sanbox',
+            mode: 'plan_only',
+            projectName: project.name,
           }),
           signal: ctrl.signal,
         })
@@ -320,46 +312,112 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
           const { done, value } = await reader.read()
           if (done) break
           buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
+          const parts = buffer.split('\n\n')
+          buffer = parts.pop() || ''
 
-          for (const line of lines) {
+          for (const part of parts) {
+            const line = part.trim()
             if (!line.startsWith('data: ')) continue
-            const raw = line.slice(6).trim()
-            if (!raw || raw === '[DONE]') continue
             try {
-              const msg = JSON.parse(raw)
-              const text: string = msg.text || msg.content || msg.message || ''
-              if (!text) continue
+              const event = JSON.parse(line.slice(6)) as Record<string, unknown>
 
-              const stepIdx = detectStep(text)
-              setRuns((prev) => {
-                const cur = prev[project.id] || {
-                  status: 'running',
-                  logs: [],
-                  currentStep: '',
-                  progress: 5,
+              switch (event.type) {
+                case 'created':
+                  updateRun(project.id, { projectId: event.projectId as number })
+                  break
+
+                case 'agent_start': {
+                  const agent = String(event.agent ?? '')
+                  const stepIdx = agentToStep[agent] ?? -1
+                  setRuns((prev) => {
+                    const cur = prev[project.id]
+                    if (!cur) return prev
+                    return {
+                      ...prev,
+                      [project.id]: {
+                        ...cur,
+                        logs: [...cur.logs, String(event.message ?? '')].slice(-50),
+                        currentStep: stepIdx >= 0 ? STEPS[stepIdx] : cur.currentStep,
+                        progress: stepIdx >= 0 ? Math.max(cur.progress, Math.round(((stepIdx + 0.5) / 4) * 100)) : cur.progress,
+                      },
+                    }
+                  })
+                  break
                 }
-                const newProgress =
-                  stepIdx >= 0
-                    ? Math.max(cur.progress, Math.round((stepIdx / 4) * 100))
-                    : Math.min(cur.progress + 1, 95)
-                return {
-                  ...prev,
-                  [project.id]: {
-                    ...cur,
-                    logs: [...cur.logs, text].slice(-50),
-                    currentStep: stepIdx >= 0 ? STEPS[stepIdx] : cur.currentStep,
-                    progress: newProgress,
-                    planId: msg.planId || cur.planId,
-                  },
+
+                case 'agent_done': {
+                  const agent = String(event.agent ?? '')
+                  const stepIdx = agentToStep[agent] ?? -1
+                  setRuns((prev) => {
+                    const cur = prev[project.id]
+                    if (!cur) return prev
+                    return {
+                      ...prev,
+                      [project.id]: {
+                        ...cur,
+                        logs: [...cur.logs, `✅ ${agent} agent done`].slice(-50),
+                        progress: stepIdx >= 0 ? Math.max(cur.progress, Math.round(((stepIdx + 1) / 4) * 100)) : cur.progress,
+                      },
+                    }
+                  })
+                  break
                 }
-              })
-            } catch {}
+
+                case 'pr_created':
+                  setRuns((prev) => {
+                    const cur = prev[project.id]
+                    if (!cur) return prev
+                    return {
+                      ...prev,
+                      [project.id]: {
+                        ...cur,
+                        logs: [...cur.logs, `🔗 PR created: ${event.url}`].slice(-50),
+                        progress: Math.max(cur.progress, 90),
+                      },
+                    }
+                  })
+                  break
+
+                case 'plan_saved':
+                  updateRun(project.id, { planId: event.planId as number })
+                  break
+
+                case 'start':
+                  setRuns((prev) => {
+                    const cur = prev[project.id]
+                    if (!cur) return prev
+                    return {
+                      ...prev,
+                      [project.id]: {
+                        ...cur,
+                        logs: [...cur.logs, String(event.message ?? '')].slice(-50),
+                      },
+                    }
+                  })
+                  break
+
+                case 'done':
+                  updateRun(project.id, { status: 'done', progress: 100 })
+                  break
+
+                case 'error':
+                  throw new Error(String(event.message ?? 'Unknown error'))
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof Error && parseErr.name !== 'SyntaxError') {
+                throw parseErr
+              }
+            }
           }
         }
 
-        updateRun(project.id, { status: 'done', progress: 100 })
+        setRuns((prev) => {
+          const cur = prev[project.id]
+          if (cur && cur.status === 'running') {
+            return { ...prev, [project.id]: { ...cur, status: 'done', progress: 100 } }
+          }
+          return prev
+        })
       } catch (err: unknown) {
         if ((err as Error).name === 'AbortError') return
         updateRun(project.id, { status: 'error', error: (err as Error).message })

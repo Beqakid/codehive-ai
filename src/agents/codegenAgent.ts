@@ -6,6 +6,9 @@
  * Also provides parsePlanForFiles() to extract the file list from a plan.
  */
 
+import { parseOpenAIStream } from '../lib/stream-parsers'
+import { withRetry } from '../lib/retry'
+
 export interface CodegenInput {
   planMarkdown: string
   filePath: string
@@ -32,29 +35,33 @@ ${input.planMarkdown.substring(0, 6000)}
 
 Output only the complete file contents for ${input.filePath}. No markdown fences. No explanations.`
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      stream: true,
-      max_tokens: 4000,
-    }),
+  const response = await withRetry(async () => {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: true,
+        max_tokens: 4000,
+      }),
+    })
+
+    if (!res.ok || !res.body) {
+      const err = await res.text()
+      throw new Error(`OpenAI API error ${res.status}: ${err}`)
+    }
+
+    return res
   })
 
-  if (!response.ok || !response.body) {
-    const err = await response.text()
-    throw new Error(`OpenAI API error ${response.status}: ${err}`)
-  }
-
-  return parseOpenAIStream(response.body, onChunk)
+  return parseOpenAIStream(response.body!, onChunk)
 }
 
 /** Ask GPT-4.1-mini to extract the list of files from the plan markdown. */
@@ -72,27 +79,31 @@ export async function parsePlanForFiles(
 Plan:
 ${planMarkdown.substring(0, 4000)}`
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      stream: false,
-      max_tokens: 1000,
-      response_format: { type: 'json_object' },
-    }),
-  })
+  const response = await withRetry(async () => {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: false,
+        max_tokens: 1000,
+        response_format: { type: 'json_object' },
+      }),
+    })
 
-  if (!response.ok) {
-    throw new Error(`OpenAI API error ${response.status}: ${await response.text()}`)
-  }
+    if (!res.ok) {
+      throw new Error(`OpenAI API error ${res.status}: ${await res.text()}`)
+    }
+
+    return res
+  })
 
   const data = (await response.json()) as {
     choices: Array<{ message: { content: string } }>
@@ -107,43 +118,4 @@ ${planMarkdown.substring(0, 4000)}`
   } catch {
     return []
   }
-}
-
-async function parseOpenAIStream(
-  body: ReadableStream<Uint8Array>,
-  onChunk: (text: string) => void,
-): Promise<string> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let fullContent = ''
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6).trim()
-      if (data === '[DONE]') continue
-      try {
-        const json = JSON.parse(data) as {
-          choices?: Array<{ delta?: { content?: string } }>
-        }
-        const text = json.choices?.[0]?.delta?.content || ''
-        if (text) {
-          fullContent += text
-          onChunk(text)
-        }
-      } catch {
-        // skip malformed chunks
-      }
-    }
-  }
-
-  return fullContent
 }
