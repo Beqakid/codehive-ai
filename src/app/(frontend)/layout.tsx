@@ -2,6 +2,7 @@ import React from 'react'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
 import { LogoutButton } from '@/components/LogoutButton'
+import HiveBackground from '@/components/HiveBackground'
 import './styles.css'
 
 export const metadata = {
@@ -25,7 +26,6 @@ function decodeJwtEmail(token: string): string | null {
 export default async function RootLayout(props: { children: React.ReactNode }) {
   const { children } = props
 
-  // Read the auth cookie — no D1 / Payload call needed for the nav bar
   const cookieStore = await cookies()
   const token = cookieStore.get('payload-token')
   const userEmail = token?.value ? decodeJwtEmail(token.value) : null
@@ -33,11 +33,17 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
 
   return (
     <html lang="en">
-      <body style={{ margin: 0, background: '#f9fafb', minHeight: '100vh' }}>
-        {/* Top nav */}
+      <body style={{ margin: 0, background: '#020817', minHeight: '100vh', color: '#f1f5f9' }}>
+        {/* Immersive hive background — fixed, behind everything */}
+        <HiveBackground />
+
+        {/* Top nav — glassmorphism over the hive */}
         <nav
           style={{
-            background: '#0f172a',
+            background: 'rgba(7,13,26,0.82)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            borderBottom: '1px solid rgba(245,158,11,0.12)',
             padding: '0 2rem',
             display: 'flex',
             alignItems: 'center',
@@ -59,6 +65,7 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
               display: 'flex',
               alignItems: 'center',
               gap: '0.4rem',
+              letterSpacing: '-0.01em',
             }}
           >
             🐝 CodeHive AI
@@ -70,7 +77,7 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
               <>
                 <NavLink href="/projects">Projects</NavLink>
                 <NavLink href="/dashboard">Dashboard</NavLink>
-                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.82rem' }}>
+                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.82rem' }}>
                   {userEmail}
                 </span>
                 <LogoutButton />
@@ -81,13 +88,14 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
                 <Link
                   href="/signup"
                   style={{
-                    background: '#10b981',
-                    color: '#fff',
+                    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color: '#000',
                     padding: '0.35rem 0.85rem',
                     borderRadius: 6,
                     textDecoration: 'none',
                     fontSize: '0.82rem',
-                    fontWeight: 600,
+                    fontWeight: 700,
+                    letterSpacing: '-0.01em',
                   }}
                 >
                   Get started
@@ -97,7 +105,7 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
           </div>
         </nav>
 
-        <main>{children}</main>
+        <main style={{ position: 'relative', zIndex: 1 }}>{children}</main>
       </body>
     </html>
   )
@@ -108,10 +116,11 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
     <Link
       href={href}
       style={{
-        color: 'rgba(255,255,255,0.75)',
+        color: 'rgba(255,255,255,0.72)',
         textDecoration: 'none',
         fontSize: '0.85rem',
         fontWeight: 500,
+        transition: 'color 0.15s',
       }}
     >
       {children}

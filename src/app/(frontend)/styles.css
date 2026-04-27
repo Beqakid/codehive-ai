@@ -9,8 +9,7 @@
 html {
   font-size: 18px;
   line-height: 32px;
-
-  background: rgb(0, 0, 0);
+  background: #020817;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -24,9 +23,8 @@ body {
   font-family: system-ui;
   font-size: 18px;
   line-height: 32px;
-
   margin: 0;
-  color: rgb(1000, 1000, 1000);
+  color: #f1f5f9;
 
   @media (max-width: 1024px) {
     font-size: 15px;
@@ -161,4 +159,24 @@ svg {
       border-radius: 4px;
     }
   }
+}
+
+/* ─── Hive background animations ─────────────────────────────────────────── */
+
+.hive-pulse {
+  animation: hivePulse 5.5s ease-in-out infinite alternate;
+}
+
+.hive-pulse-slow {
+  animation: hivePulseSlow 9s ease-in-out infinite alternate;
+}
+
+@keyframes hivePulse {
+  0%   { opacity: 0.35; transform: scale(0.97); }
+  100% { opacity: 1;    transform: scale(1.04); }
+}
+
+@keyframes hivePulseSlow {
+  0%   { opacity: 0.2;  transform: scale(1.03); }
+  100% { opacity: 0.85; transform: scale(0.96); }
 }
