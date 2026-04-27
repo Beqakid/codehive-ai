@@ -17,6 +17,7 @@ import { AgentRuns } from './collections/AgentRuns'
 import { ToolConnections } from './collections/ToolConnections'
 import { Commands } from './collections/Commands'
 import { Runs } from './collections/Runs'
+import { FixAttempts } from './collections/FixAttempts'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -67,6 +68,7 @@ export default buildConfig({
     ToolConnections,
     Commands,
     Runs,
+    FixAttempts,
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

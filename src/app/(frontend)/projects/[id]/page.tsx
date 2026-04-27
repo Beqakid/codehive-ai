@@ -6,6 +6,7 @@ import Link from 'next/link'
 import config from '@/payload.config'
 import { CodeGenRunner } from '@/components/CodeGenRunner'
 import { SandboxRunner } from '@/components/SandboxRunner'
+import { FixRunner } from '@/components/FixRunner'
 import HiveBackground from '@/components/HiveBackground'
 import '../../styles.css'
 
@@ -43,7 +44,6 @@ function getStatusCfg(status: string) {
   return STATUS_CONFIG[status] ?? { label: status, color: '#94a3b8', bg: 'rgba(30,41,59,0.5)', dot: '#475569' }
 }
 
-/** Extract the displayable text from a plan section (handles JSON { markdown } or plain string) */
 function extractMarkdown(field: unknown): string {
   if (!field) return ''
   if (typeof field === 'string') return field
@@ -77,10 +77,8 @@ export default async function ProjectDetailPage({
   if (!projectRes.docs.length) notFound()
   const project = projectRes.docs[0] as unknown as ProjectDoc
 
-  // Scope agent plans to THIS project via coding-requests join
   let plans: AgentPlanDoc[] = []
   try {
-    // Step 1: find coding requests belonging to this project
     const crRes = await payload.find({
       collection: 'coding-requests',
       where: { project: { equals: Number(id) } },
@@ -90,7 +88,6 @@ export default async function ProjectDetailPage({
     })
     const crIds = crRes.docs.map((d) => d.id)
 
-    // Step 2: find agent plans for those coding requests
     if (crIds.length > 0) {
       const plansRes = await payload.find({
         collection: 'agent-plans',
@@ -103,7 +100,7 @@ export default async function ProjectDetailPage({
       plans = plansRes.docs as unknown as AgentPlanDoc[]
     }
   } catch {
-    // silently ignore — plans section will show empty state
+    // silently ignore
   }
 
   const cfg = getStatusCfg(project.status)
@@ -126,7 +123,6 @@ export default async function ProjectDetailPage({
           }}
         >
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-            {/* Breadcrumb */}
             <div
               style={{
                 display: 'flex',
@@ -194,7 +190,7 @@ export default async function ProjectDetailPage({
         {/* Main content */}
         <div style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
-          {/* AI Runners — only show when a plan exists */}
+          {/* AI Runners */}
           {latestPlan && (
             <div
               style={{
@@ -224,14 +220,18 @@ export default async function ProjectDetailPage({
               </div>
 
               {isApproved ? (
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 280 }}>
-                    <CodeGenRunner planId={latestPlan.id} prUrl={latestPrUrl} />
+                <>
+                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                    <div style={{ flex: 1, minWidth: 280 }}>
+                      <CodeGenRunner planId={latestPlan.id} prUrl={latestPrUrl} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 280 }}>
+                      <SandboxRunner planId={latestPlan.id} />
+                    </div>
                   </div>
-                  <div style={{ flex: 1, minWidth: 280 }}>
-                    <SandboxRunner planId={latestPlan.id} />
-                  </div>
-                </div>
+                  {/* Run & Fix Until Stable — full width below the two runners */}
+                  <FixRunner planId={latestPlan.id} prUrl={latestPrUrl} />
+                </>
               ) : (
                 <div
                   style={{
@@ -405,7 +405,6 @@ export default async function ProjectDetailPage({
   )
 }
 
-// Inline client component for approve button
 function ApprovePlanButton({ planId }: { planId: number }) {
   return (
     <form action={`/api/plans/${planId}/approve`} method="POST">
