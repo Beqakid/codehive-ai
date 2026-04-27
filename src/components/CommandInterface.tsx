@@ -78,6 +78,7 @@ export default function CommandInterface() {
       const res = await fetch('/api/command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ prompt: prompt.trim(), mode, projectName: projectName.trim() || undefined }),
       })
 
@@ -104,12 +105,21 @@ export default function CommandInterface() {
       const streamRes = await fetch('/api/command/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ commandId, runId, codingRequestId, mode }),
         signal: abort.signal,
       })
 
       if (!streamRes.ok || !streamRes.body) {
-        throw new Error(`Stream failed: HTTP ${streamRes.status}`)
+        // Read error body for better diagnostics
+        let errDetail = `HTTP ${streamRes.status}`
+        try {
+          const errBody = await streamRes.json() as { error?: string }
+          if (errBody.error) errDetail = errBody.error
+        } catch {
+          // ignore parse error
+        }
+        throw new Error(`Stream failed: ${errDetail}`)
       }
 
       const reader = streamRes.body.getReader()
@@ -146,13 +156,13 @@ export default function CommandInterface() {
                 setCurrentAgent(null)
                 break
               case 'chunk':
-                // Aggregate chunks — don't add individual log entries, just track
+                // Aggregate chunks — don\'t add individual log entries
                 break
               case 'github_context':
                 addLog({ type: 'github_context', text: `📂 Loaded ${event.files} repo files` })
                 break
               case 'pr_created':
-                addLog({ type: 'pr_created', text: `🔗 PR created: ${event.url}`, })
+                addLog({ type: 'pr_created', text: `🔗 PR created: ${event.url}` })
                 break
               case 'plan_saved':
                 addLog({ type: 'plan_saved', text: `💾 Plan #${event.planId} saved` })
@@ -382,7 +392,7 @@ export default function CommandInterface() {
 
         {/* Error */}
         {status === 'error' && error && (
-          <div className="bg-red-950/40 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm">
+          <div className="bg-red-950/40 border border-red-700/50 rounded-xl p-4 text-red-400 text-sm font-mono break-all">
             ❌ {error}
           </div>
         )}

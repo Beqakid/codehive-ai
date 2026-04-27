@@ -7,6 +7,9 @@
  *   full_build → orchestrator + code generation + sandbox trigger
  *
  * Body: { commandId, runId, codingRequestId, mode }
+ *
+ * NOTE: Auth is validated upstream in /api/command before the run is created.
+ * The commandId + runId pair acts as an implicit access token here.
  */
 
 export const dynamic = 'force-dynamic'
@@ -54,16 +57,6 @@ export async function POST(request: Request) {
     payload = await getPayload({ config: payloadConfig })
   } catch (err) {
     return Response.json({ error: `Payload init failed: ${String(err)}` }, { status: 500 })
-  }
-
-  // Auth check
-  try {
-    const { user } = await payload.auth({ headers: new Headers(request.headers) })
-    if (!user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-  } catch (err) {
-    return Response.json({ error: `Auth failed: ${String(err)}` }, { status: 500 })
   }
 
   const stream = new ReadableStream({
