@@ -5,6 +5,7 @@ export type Role = 'super_admin' | 'admin' | 'developer' | 'viewer'
 export const ROLES: Role[] = ['super_admin', 'admin', 'developer', 'viewer']
 
 interface UserWithRole {
+  id?: number
   role?: string
 }
 
@@ -39,6 +40,22 @@ export const adminOrAboveAccess: Access = ({ req: { user } }) => isAdminOrAbove(
 export const developerOrAboveAccess: Access = ({ req: { user } }) => isDeveloperOrAbove(user)
 
 export const anyLoggedInAccess: Access = ({ req: { user } }) => isViewerOrAbove(user)
+
+/**
+ * Owner-scoped access — users see only their own records + unowned legacy records.
+ * Admins see everything. Requires the collection to have an `owner` relationship field.
+ */
+export const ownerOrAdminAccess: Access = ({ req: { user } }) => {
+  if (!user) return false
+  if (isAdminOrAbove(user as UserWithRole)) return true
+  // Regular users: own records + legacy unowned records
+  return {
+    or: [
+      { owner: { equals: (user as UserWithRole).id } },
+      { owner: { exists: false } },
+    ],
+  }
+}
 
 /** Field-level access for the role field — only super_admin can change roles */
 export const roleFieldAccess: FieldAccess = ({ req: { user } }) => isSuperAdmin(user)

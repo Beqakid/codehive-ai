@@ -11,6 +11,7 @@
  * Auth failures return JSON 401/400 before the stream starts.
  *
  * Uses TransformStream for reliable Cloudflare Workers SSE streaming.
+ * Rate limited: max 5 commands per user per minute.
  */
 
 export const dynamic = 'force-dynamic'
@@ -22,6 +23,8 @@ import { runCodeOrchestrator } from '@/agents/codeOrchestrator'
 import { runSandboxAgent } from '@/agents/sandboxAgent'
 
 type Mode = 'plan_only' | 'plan_code' | 'full_build'
+
+const MAX_COMMANDS_PER_MINUTE = 5
 
 interface CommandBody {
   prompt?: unknown
@@ -45,12 +48,34 @@ export async function POST(request: Request) {
   let user: { id: number } | null = null
   try {
     const authResult = await payload.auth({ headers: new Headers(request.headers) })
-    user = authResult?.user as { id: number } | null ?? null
+    user = (authResult?.user as { id: number } | null) ?? null
   } catch {
     // auth() threw — treat as unauthorized
   }
   if (!user) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // ── 2b. Rate limiting: max N commands per user per minute ────────────────
+  try {
+    const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString()
+    const recent = await payload.find({
+      collection: 'commands',
+      where: {
+        submittedBy: { equals: user.id },
+        createdAt: { greater_than: oneMinuteAgo },
+      },
+      limit: 0,
+      overrideAccess: true,
+    })
+    if (recent.totalDocs >= MAX_COMMANDS_PER_MINUTE) {
+      return Response.json(
+        { error: `Rate limit exceeded — max ${MAX_COMMANDS_PER_MINUTE} commands per minute. Please wait.` },
+        { status: 429 },
+      )
+    }
+  } catch {
+    // Rate-limit check failed — allow the request (fail open)
   }
 
   // ── 3. Parse body ─────────────────────────────────────────────────────────

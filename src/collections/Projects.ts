@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { adminOrAboveAccess, anyLoggedInAccess, superAdminAccess } from '../access/roles'
+import { adminOrAboveAccess, anyLoggedInAccess, ownerOrAdminAccess } from '../access/roles'
 
 export const Projects: CollectionConfig = {
   slug: 'projects',
@@ -8,8 +8,8 @@ export const Projects: CollectionConfig = {
   },
   access: {
     create: anyLoggedInAccess,
-    read: anyLoggedInAccess,
-    update: anyLoggedInAccess,
+    read: ownerOrAdminAccess,
+    update: ownerOrAdminAccess,
     delete: adminOrAboveAccess,
   },
   fields: [
