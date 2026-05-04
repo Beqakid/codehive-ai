@@ -5,6 +5,7 @@
  * and commits them to the PR branch. Also bootstraps sandbox files (package.json, tsconfig, tests).
  * If the plan has no associated PR URL (e.g. PR creation failed during orchestration),
  * creates a new branch and PR before generating code.
+ * Auto-provisions .github/workflows/sandbox.yml to any target repo that doesn't have it.
  * Exports: runCodeOrchestrator, CodeGenSSEEvent.
  */
 
@@ -27,6 +28,142 @@ export type CodeGenSSEEvent =
   | { type: 'all_done'; filesCommitted: number }
   | { type: 'error'; message: string }
 
+// ─── Sandbox workflow YAML ────────────────────────────────────────────────────
+const SANDBOX_WORKFLOW_YAML = `name: 🧪 Sandbox — Install & Test
+
+on:
+  pull_request:
+    branches: ['**']
+  push:
+    branches: ['agent-plan/**']
+
+jobs:
+  sandbox:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type check
+        run: npx tsc --noEmit || true
+
+      - name: Run tests
+        run: npm test
+
+      - name: Post result comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const emoji = status === 'success' ? '✅' : '❌';
+            const runUrl = \`\${context.serverUrl}/\${context.repo.owner}/\${context.repo.repo}/actions/runs/\${context.runId}\`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                \`## \${emoji} Sandbox Results\`,
+                '',
+                \`**Status:** \\\`\${status}\\\`\`,
+                \`**Run:** [View full logs](\${runUrl})\`,
+                '',
+                status === 'success'
+                  ? '> All tests passed! This branch is ready for review. 🎉'
+                  : '> Tests failed. Check the logs above for details.',
+              ].join('\\n'),
+            });
+`
+
+// ─── Auto-provision sandbox workflow ──────────────────────────────────────────
+/**
+ * Checks if .github/workflows/sandbox.yml exists in the target repo.
+ * If not, pushes it automatically so sandbox runs work out of the box.
+ * Fails silently (warns via onEvent) if the token lacks `workflow` scope.
+ */
+async function ensureSandboxWorkflow(
+  owner: string,
+  repo: string,
+  onEvent: (event: CodeGenSSEEvent) => void,
+): Promise<void> {
+  const ghHeaders: Record<string, string> = {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'codehive-ai/3.0',
+    'Content-Type': 'application/json',
+  }
+  if (process.env.GITHUB_TOKEN) {
+    ghHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
+  }
+
+  // Check if workflow already exists
+  const checkResp = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/contents/.github/workflows/sandbox.yml`,
+    { headers: ghHeaders },
+  )
+
+  if (checkResp.ok) {
+    // Already exists — nothing to do
+    onEvent({ type: 'start', message: `✅ Sandbox workflow already present in ${owner}/${repo}` })
+    return
+  }
+
+  if (checkResp.status !== 404) {
+    onEvent({
+      type: 'start',
+      message: `⚠️ Could not check sandbox workflow (${checkResp.status}) — skipping auto-provision`,
+    })
+    return
+  }
+
+  // 404 — need to create it
+  onEvent({
+    type: 'start',
+    message: `🔧 Provisioning sandbox workflow in ${owner}/${repo}...`,
+  })
+
+  try {
+    await createOrUpdateFile(
+      owner,
+      repo,
+      '.github/workflows/sandbox.yml',
+      SANDBOX_WORKFLOW_YAML,
+      'main', // always push to default branch
+      'ci: add CodeHive sandbox workflow',
+    )
+    onEvent({
+      type: 'start',
+      message: `✅ Sandbox workflow provisioned in ${owner}/${repo} — GitHub Actions ready!`,
+    })
+  } catch (err) {
+    const msg = String(err)
+    if (msg.includes('403') || msg.includes('workflow')) {
+      onEvent({
+        type: 'start',
+        message:
+          `⚠️ Could not auto-provision sandbox workflow (token needs \'workflow\' scope). ` +
+          `Please add .github/workflows/sandbox.yml to ${owner}/${repo} manually, or update your GITHUB_TOKEN with the workflow scope.`,
+      })
+    } else {
+      onEvent({
+        type: 'start',
+        message: `⚠️ Sandbox workflow provision failed: ${msg} — continuing anyway`,
+      })
+    }
+  }
+}
+
+// ─── Main orchestrator ────────────────────────────────────────────────────────
 export async function runCodeOrchestrator(
   payload: Payload,
   planId: number,
@@ -53,6 +190,9 @@ export async function runCodeOrchestrator(
   const parsedRepo = repoUrl ? parseGithubUrl(repoUrl) : null
   if (!parsedRepo) throw new Error('Plan has no associated repo URL')
 
+  // 2. Auto-provision sandbox workflow if missing
+  await ensureSandboxWorkflow(parsedRepo.owner, parsedRepo.repo, onEvent)
+
   // Derive codingRequestId from populated codingRequest field
   const crField = plan.codingRequest as unknown as { id: number } | number
   const codingRequestId = typeof crField === 'object' && crField !== null ? crField.id : crField
@@ -67,7 +207,7 @@ export async function runCodeOrchestrator(
     ghHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
   }
 
-  // 2. Self-heal: if PR URL is missing, create branch + PR now
+  // 3. Self-heal: if PR URL is missing, create branch + PR now
   if (!prUrl) {
     onEvent({
       type: 'start',
@@ -145,7 +285,7 @@ export async function runCodeOrchestrator(
     message: `📂 Fetching PR #${prNumber} from ${parsedRepo.owner}/${parsedRepo.repo}...`,
   })
 
-  // 3. Get PR head branch name from GitHub
+  // 4. Get PR head branch name from GitHub
   const prResp = await fetch(
     `https://api.github.com/repos/${parsedRepo.owner}/${parsedRepo.repo}/pulls/${prNumber}`,
     { headers: ghHeaders },
@@ -158,7 +298,7 @@ export async function runCodeOrchestrator(
 
   onEvent({ type: 'start', message: `🌿 Branch: ${branchName}` })
 
-  // 4. Fetch plan markdown from the PR branch
+  // 5. Fetch plan markdown from the PR branch
   onEvent({ type: 'start', message: '📄 Fetching plan markdown from branch...' })
 
   let planMarkdown = ''
@@ -186,7 +326,7 @@ export async function runCodeOrchestrator(
 
   onEvent({ type: 'start', message: '🗂️ Parsing plan to extract files...' })
 
-  // 5. Parse plan to get file list
+  // 6. Parse plan to get file list
   const filesToGenerate = await parsePlanForFiles(planMarkdown)
 
   if (filesToGenerate.length === 0) {
@@ -197,7 +337,7 @@ export async function runCodeOrchestrator(
 
   onEvent({ type: 'start', message: `📋 ${filesToGenerate.length} file(s) to generate` })
 
-  // 6. Generate each file and commit to branch
+  // 7. Generate each file and commit to branch
   let committed = 0
 
   for (let i = 0; i < filesToGenerate.length; i++) {
@@ -235,7 +375,7 @@ export async function runCodeOrchestrator(
     }
   }
 
-  // 7. Phase 4 — Commit sandbox bootstrap files (package.json, tsconfig, test file)
+  // 8. Phase 4 — Commit sandbox bootstrap files (package.json, tsconfig, test file)
   // Only add these if they aren't already in the generated file list
   const generatedPaths = new Set(filesToGenerate.map((f) => f.path))
 
