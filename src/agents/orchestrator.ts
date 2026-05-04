@@ -19,6 +19,7 @@ import {
   createOrUpdateFile,
   createPullRequest,
 } from '../lib/github'
+import { withRetry } from '../lib/retry'
 
 export type SSEEvent =
   | { type: 'start'; message: string }
@@ -80,10 +81,12 @@ function extractVerdictReason(reviewText: string, isApproved: boolean): string {
 
 /**
  * Keyword-first verdict parsing.
- * 1. Check for explicit NEEDS_REVISION / NOT_APPROVED / REJECTED keywords in FULL text
- * 2. Check for explicit APPROVED keyword (after ruling out negative keywords)
- * 3. Check numeric score (< 7.5 = not approved)
- * 4. Only fall back to o4-mini when ambiguous
+ * 1. Check score first — score >= 7.5 approves even if NEEDS_REVISION keyword present
+ *    (handles reviewers that note minor concerns but still give a passing score)
+ * 2. Check for explicit NEEDS_REVISION / NOT_APPROVED / REJECTED keywords (only when score < 7.5)
+ * 3. Check for explicit APPROVED keyword
+ * 4. Check numeric score (< 7.5 = not approved)
+ * 5. Only fall back to o4-mini when ambiguous
  */
 async function parseReviewVerdict(reviewText: string): Promise<{
   approved: boolean
@@ -93,7 +96,14 @@ async function parseReviewVerdict(reviewText: string): Promise<{
   const fullTextUpper = reviewText.toUpperCase()
   const score = extractReviewScore(reviewText)
 
-  // ── Step 1: Explicit negative keywords (check FULL text) ──────────────
+  // ── Step 1: High score overrides any negative keywords ────────────────
+  // A score >= 7.5 means the reviewer thinks the plan is solid enough.
+  // Minor concerns flagged with NEEDS_REVISION don't block a high-scoring plan.
+  if (score !== null && score >= 7.5) {
+    return { approved: true, score, reason: 'Reviewer approved the plan.' }
+  }
+
+  // ── Step 2: Explicit negative keywords (only when score is low/unknown) ─
   const negativeKeywords = [
     'NEEDS_REVISION',
     'NEEDS REVISION',
@@ -111,13 +121,13 @@ async function parseReviewVerdict(reviewText: string): Promise<{
     return { approved: false, score, reason }
   }
 
-  // ── Step 2: Low score = not approved ──────────────────────────────────
+  // ── Step 3: Low score = not approved ──────────────────────────────────
   if (score !== null && score < 7.5) {
     const reason = extractVerdictReason(reviewText, false)
     return { approved: false, score, reason: `Score ${score}/10 below threshold (7.5). ${reason}` }
   }
 
-  // ── Step 3: Explicit positive keywords ────────────────────────────────
+  // ── Step 4: Explicit positive keywords ────────────────────────────────
   const positiveKeywords = ['APPROVED', 'LGTM', 'READY TO PROCEED', 'SHIP IT', 'PROCEED WITH']
   const hasExplicitPositive = positiveKeywords.some((kw) => fullTextUpper.includes(kw))
 
@@ -126,12 +136,12 @@ async function parseReviewVerdict(reviewText: string): Promise<{
     return { approved: true, score, reason }
   }
 
-  // ── Step 4: High score alone = approved ───────────────────────────────
+  // ── Step 5: High score alone = approved ───────────────────────────────
   if (score !== null && score >= 8.0) {
     return { approved: true, score, reason: `Score ${score}/10 — reviewer gave high marks.` }
   }
 
-  // ── Step 5: Ambiguous — use o4-mini as tiebreaker ─────────────────────
+  // ── Step 6: Ambiguous — use o4-mini as tiebreaker ─────────────────────
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     // No API key fallback — be conservative, require revision
@@ -405,7 +415,7 @@ export async function runOrchestrator(
   }
   onEvent({ type: 'agent_done', agent: 'reviewer' })
 
-  // 6. Parse review verdict — keyword-first with o4-mini fallback
+  // 6. Parse review verdict — score-first with keyword fallback and o4-mini tiebreaker
   onEvent({ type: 'start', message: '🧠 Evaluating review verdict...' })
   const verdict = await parseReviewVerdict(reviewFeedback)
   onEvent({
@@ -438,7 +448,7 @@ export async function runOrchestrator(
   })
   onEvent({ type: 'plan_saved', planId: agentPlan.id })
 
-  // 8. Create GitHub PR (optional — needs GITHUB_TOKEN)
+  // 8. Create GitHub PR (optional — needs GITHUB_TOKEN, retried on transient 500s)
   if (parsedRepo && process.env.GITHUB_TOKEN) {
     try {
       onEvent({ type: 'start', message: '📝 Creating GitHub PR with agent plan...' })
@@ -483,13 +493,18 @@ ${reviewFeedback}
         `feat: add AI agent plan for "${codingRequest.title}"`,
       )
 
-      const prUrl = await createPullRequest(
-        parsedRepo.owner,
-        parsedRepo.repo,
-        `[Agent Plan] ${codingRequest.title}`,
-        `## 🤖 AI-Generated Plan\n\nThis PR was automatically created by **CodeHive AI** agents.\n\n| Field | Value |\n|---|---|\n| **Coding Request** | #${codingRequestId} |\n| **Project** | ${projectName} |\n| **Review Score** | ${verdict.score !== null ? `${verdict.score}/10` : 'N/A'} |\n| **Status** | ${verdict.approved ? '✅ Approved' : '⚠️ Needs Revision'} |\n\n${!verdict.approved ? `### ⚠️ Reviewer Concerns\n\n${verdict.reason}\n\n` : ''}See \`agent-plans/plan-request-${codingRequestId}.md\` for the full plan.`,
-        branchName,
-        defaultBranch,
+      // Retry PR creation — GitHub occasionally returns transient 500s
+      const prUrl = await withRetry(
+        () =>
+          createPullRequest(
+            parsedRepo.owner,
+            parsedRepo.repo,
+            `[Agent Plan] ${codingRequest.title}`,
+            `## 🤖 AI-Generated Plan\n\nThis PR was automatically created by **CodeHive AI** agents.\n\n| Field | Value |\n|---|---|\n| **Coding Request** | #${codingRequestId} |\n| **Project** | ${projectName} |\n| **Review Score** | ${verdict.score !== null ? `${verdict.score}/10` : 'N/A'} |\n| **Status** | ${verdict.approved ? '✅ Approved' : '⚠️ Needs Revision'} |\n\n${!verdict.approved ? `### ⚠️ Reviewer Concerns\n\n${verdict.reason}\n\n` : ''}See \`agent-plans/plan-request-${codingRequestId}.md\` for the full plan.`,
+            branchName,
+            defaultBranch,
+          ),
+        { maxRetries: 2, baseDelayMs: 2000 },
       )
 
       onEvent({ type: 'pr_created', url: prUrl })
