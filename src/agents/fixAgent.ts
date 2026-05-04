@@ -49,6 +49,7 @@ Your job is to analyze the failure, identify the root cause, and produce correct
 
 RULES:
 - Return ONLY valid JSON — no markdown fences, no explanation outside the JSON object
+- Start your response with { — do NOT write any text before the opening brace
 - Use full file replacement — return the COMPLETE corrected file content for each file
 - Only modify files that are directly related to the error
 - Never delete files that aren't part of the error
@@ -59,7 +60,7 @@ RULES:
 - If you are not confident the fix will work (< 0.65), set needsHumanReview to true
 - If the fix is risky or changes many files, set riskLevel to "high"
 
-Your response must be EXACTLY this JSON structure (no other text):
+Your response must be EXACTLY this JSON structure (no other text before or after):
 {
   "summary": "Brief description of what was fixed",
   "confidence": 0.0,
@@ -120,8 +121,28 @@ ${input.rawLogs.slice(0, 8000)}
     prompt += `\n\nIMPORTANT: The above fixes did NOT work. You must try a DIFFERENT approach.`
   }
 
-  prompt += `\n\nAnalyze the error and return a JSON fix. Only modify files needed to resolve this specific failure.`
+  prompt += `\n\nAnalyze the error and return a JSON fix. Only modify files needed to resolve this specific failure. Start your response with { immediately.`
   return prompt
+}
+
+/**
+ * Extract JSON object from text — handles cases where Claude outputs
+ * reasoning or preamble text before the JSON object.
+ */
+function extractJson(text: string): string {
+  // First try: strip markdown fences only
+  let clean = text.trim()
+  clean = clean.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?\s*```\s*$/i, '').trim()
+
+  // Second try: find first { and matching last }
+  // This handles preamble text like "I need to analyze...\n{...}"
+  const firstBrace = clean.indexOf('{')
+  const lastBrace = clean.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return clean.slice(firstBrace, lastBrace + 1)
+  }
+
+  return clean
 }
 
 export async function runFixAgent(
@@ -171,15 +192,14 @@ export async function runFixAgent(
     return text
   })
 
-  // Parse JSON — strip any markdown fencing Claude might add
-  let jsonStr = rawText.trim()
-  jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?\s*```\s*$/i, '')
+  // Parse JSON — extract even if Claude added preamble text
+  const jsonStr = extractJson(rawText)
 
   let parsed: FixAgentResult
   try {
     parsed = JSON.parse(jsonStr) as FixAgentResult
   } catch (err) {
-    throw new Error(`Fix Agent returned invalid JSON: ${String(err)}\nRaw: ${jsonStr.slice(0, 500)}`)
+    throw new Error(`Fix Agent returned invalid JSON: ${String(err)}\nRaw: ${rawText.slice(0, 500)}`)
   }
 
   // Validate required fields
