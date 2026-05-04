@@ -150,30 +150,93 @@ export default async function ProjectDetailPage({
             borderBottom: '1px solid rgba(30,58,95,0.6)',
             background: 'rgba(7,13,26,0.75)',
             backdropFilter: 'blur(14px)',
-            padding: '2rem 2rem 1.75rem',
+            padding: '2rem 2rem 0',
           }}
         >
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+            {/* Breadcrumbs */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.5rem',
-                marginBottom: '1rem',
+                marginBottom: '1.25rem',
                 fontSize: '0.78rem',
               }}
             >
-              <Link href="/dashboard" style={{ color: '#475569', textDecoration: 'none' }}>Dashboard</Link>
-              <span style={{ color: '#1e3a5f' }}>/</span>
-              <Link href="/projects" style={{ color: '#475569', textDecoration: 'none' }}>Projects</Link>
-              <span style={{ color: '#1e3a5f' }}>/</span>
-              <span style={{ color: '#94a3b8', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
+              <Link
+                href="/dashboard"
+                style={{
+                  color: '#475569',
+                  textDecoration: 'none',
+                  transition: 'color 0.15s',
+                }}
+              >
+                Dashboard
+              </Link>
+              <span style={{ color: '#1e3a5f', fontSize: '0.7rem' }}>›</span>
+              <Link
+                href="/projects"
+                style={{
+                  color: '#475569',
+                  textDecoration: 'none',
+                  transition: 'color 0.15s',
+                }}
+              >
+                Projects
+              </Link>
+              <span style={{ color: '#1e3a5f', fontSize: '0.7rem' }}>›</span>
+              <span
+                style={{
+                  color: '#94a3b8',
+                  maxWidth: 220,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {project.name}
+              </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '1rem',
+                paddingBottom: '1.75rem',
+              }}
+            >
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
-                  <h1 style={{ margin: 0, fontSize: '1.55rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.02em' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                  {/* Gradient icon badge */}
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(139,92,246,0.2))',
+                      border: '1px solid rgba(59,130,246,0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1rem',
+                      flexShrink: 0,
+                    }}
+                  >
+                    📁
+                  </div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      fontSize: '1.55rem',
+                      fontWeight: 800,
+                      color: '#f1f5f9',
+                      letterSpacing: '-0.02em',
+                    }}
+                  >
                     {project.name}
                   </h1>
                   <span
@@ -191,7 +254,15 @@ export default async function ProjectDetailPage({
                   </span>
                 </div>
                 {project.description && (
-                  <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.5 }}>
+                  <p
+                    style={{
+                      margin: 0,
+                      color: '#64748b',
+                      fontSize: '0.875rem',
+                      lineHeight: 1.5,
+                      marginLeft: 48,
+                    }}
+                  >
                     {project.description}
                   </p>
                 )}
@@ -205,6 +276,7 @@ export default async function ProjectDetailPage({
                       alignItems: 'center',
                       gap: 5,
                       marginTop: '0.5rem',
+                      marginLeft: 48,
                       fontSize: '0.75rem',
                       color: '#60a5fa',
                       textDecoration: 'none',
@@ -215,174 +287,341 @@ export default async function ProjectDetailPage({
                 )}
               </div>
             </div>
+
+            {/* Rainbow accent line */}
+            <div
+              style={{
+                height: 2,
+                background: 'linear-gradient(to right, #3b82f6, #8b5cf6, #f59e0b, #ef4444)',
+                borderRadius: 1,
+              }}
+            />
           </div>
         </div>
 
         {/* Main content */}
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-
+        <div
+          style={{
+            maxWidth: 1100,
+            margin: '0 auto',
+            padding: '2rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2rem',
+          }}
+        >
           {/* AI Runners */}
           {latestPlan && (
             <div
               style={{
                 background: 'rgba(13,21,38,0.8)',
-                backdropFilter: 'blur(12px)',
+                backdropFilter: 'blur(14px)',
                 border: '1px solid rgba(30,58,95,0.7)',
                 borderRadius: 14,
-                padding: '1.5rem',
+                padding: 0,
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
-                <div style={{ width: 3, height: 18, borderRadius: 9999, background: 'linear-gradient(to bottom, #f59e0b, #d97706)' }} />
-                <span style={{ color: '#94a3b8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>AI Runners — Plan #{latestPlan.id}</span>
-                <span
-                  style={{
-                    fontSize: '0.65rem',
-                    padding: '2px 8px',
-                    borderRadius: 9999,
-                    background: getStatusCfg(latestPlan.status).bg,
-                    color: getStatusCfg(latestPlan.status).color,
-                    fontWeight: 700,
-                    border: `1px solid ${getStatusCfg(latestPlan.status).dot}40`,
-                  }}
-                >
-                  {getStatusCfg(latestPlan.status).label}
-                </span>
-                {latestPlan.reviewScore != null && (
+              {/* Top accent line */}
+              <div
+                style={{
+                  height: 2,
+                  background: 'linear-gradient(to right, #f59e0b, #d97706, #ea580c)',
+                  borderRadius: '14px 14px 0 0',
+                }}
+              />
+
+              <div style={{ padding: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
+                  {/* Gradient icon badge */}
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 8,
+                      background: 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(217,119,6,0.2))',
+                      border: '1px solid rgba(245,158,11,0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.8rem',
+                      flexShrink: 0,
+                    }}
+                  >
+                    🤖
+                  </div>
+                  <span
+                    style={{
+                      color: '#e2e8f0',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                    }}
+                  >
+                    AI Runners
+                  </span>
+                  <span style={{ color: '#475569', fontSize: '0.72rem' }}>—</span>
+                  <span style={{ color: '#94a3b8', fontSize: '0.72rem', fontWeight: 600 }}>Plan #{latestPlan.id}</span>
                   <span
                     style={{
                       fontSize: '0.65rem',
                       padding: '2px 8px',
                       borderRadius: 9999,
-                      background: latestPlan.reviewScore >= 7.5 ? 'rgba(16,185,129,0.12)' : 'rgba(249,115,22,0.12)',
-                      color: latestPlan.reviewScore >= 7.5 ? '#34d399' : '#fb923c',
+                      background: getStatusCfg(latestPlan.status).bg,
+                      color: getStatusCfg(latestPlan.status).color,
                       fontWeight: 700,
-                      border: `1px solid ${latestPlan.reviewScore >= 7.5 ? '#10b981' : '#f97316'}40`,
+                      border: `1px solid ${getStatusCfg(latestPlan.status).dot}40`,
                     }}
                   >
-                    Score: {latestPlan.reviewScore}/10
+                    {getStatusCfg(latestPlan.status).label}
                   </span>
-                )}
-              </div>
-
-              {isApproved ? (
-                <>
-                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                    <div style={{ flex: 1, minWidth: 280 }}>
-                      <CodeGenRunner planId={latestPlan.id} prUrl={latestPrUrl} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 280 }}>
-                      <SandboxRunner planId={latestPlan.id} />
-                    </div>
-                  </div>
-                  {/* Run & Fix Until Stable — full width below the two runners */}
-                  <FixRunner planId={latestPlan.id} prUrl={latestPrUrl} />
-                  {/* Interactive Fix Chat — appears when auto-fix fails */}
-                  {showFixChat && (
-                    <div style={{ marginTop: '0.75rem' }}>
-                      <ChatFixPanel
-                        planId={latestPlan.id}
-                        projectName={project.name}
-                        fixAttemptCount={fixAttemptCount}
-                        latestError={latestErrorSummary}
-                      />
-                    </div>
-                  )}
-                </>
-              ) : isNeedsRevision ? (
-                <div
-                  style={{
-                    padding: '1.5rem',
-                    background: 'rgba(249,115,22,0.06)',
-                    border: '1px solid rgba(249,115,22,0.3)',
-                    borderRadius: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1rem' }}>
-                    <div style={{ fontSize: '1.5rem', lineHeight: 1 }}>⚠️</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ color: '#fb923c', fontWeight: 800, fontSize: '0.95rem', marginBottom: '0.35rem' }}>
-                        Reviewer Flagged This Plan
-                      </div>
-                      <div style={{ color: '#94a3b8', fontSize: '0.82rem', lineHeight: 1.6 }}>
-                        The AI reviewer determined this plan needs revision before code generation can proceed.
-                        {latestPlan.reviewScore != null && (
-                          <> Review score: <strong style={{ color: '#fb923c' }}>{latestPlan.reviewScore}/10</strong> (threshold: 7.5).</>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Reviewer concerns */}
-                  {latestPlan.verdictReason && (
-                    <div
+                  {latestPlan.reviewScore != null && (
+                    <span
                       style={{
-                        background: 'rgba(7,13,26,0.6)',
-                        border: '1px solid rgba(30,58,95,0.5)',
-                        borderRadius: 10,
-                        padding: '1rem 1.25rem',
-                        marginBottom: '1.25rem',
+                        fontSize: '0.65rem',
+                        padding: '2px 8px',
+                        borderRadius: 9999,
+                        background: latestPlan.reviewScore >= 7.5 ? 'rgba(16,185,129,0.12)' : 'rgba(249,115,22,0.12)',
+                        color: latestPlan.reviewScore >= 7.5 ? '#34d399' : '#fb923c',
+                        fontWeight: 700,
+                        border: `1px solid ${latestPlan.reviewScore >= 7.5 ? '#10b981' : '#f97316'}40`,
                       }}
                     >
-                      <div style={{ fontSize: '0.68rem', color: '#f97316', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>
-                        Reviewer Concerns
-                      </div>
-                      <div style={{ color: '#cbd5e1', fontSize: '0.82rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-                        {latestPlan.verdictReason}
-                      </div>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <ApprovePlanButton planId={latestPlan.id} variant="override" />
-                    <span style={{ color: '#475569', fontSize: '0.75rem' }}>
-                      Override will approve this plan and allow code generation to proceed.
+                      Score: {latestPlan.reviewScore}/10
                     </span>
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <div
-                  style={{
-                    padding: '1.25rem',
-                    background: 'rgba(245,158,11,0.07)',
-                    border: '1px solid rgba(245,158,11,0.25)',
-                    borderRadius: 10,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '1rem',
-                  }}
-                >
-                  <div>
-                    <div style={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.25rem' }}>
-                      ⏳ Plan not yet approved
+
+                {isApproved ? (
+                  <>
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                      <div style={{ flex: 1, minWidth: 280 }}>
+                        <CodeGenRunner planId={latestPlan.id} prUrl={latestPrUrl} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 280 }}>
+                        <SandboxRunner planId={latestPlan.id} />
+                      </div>
                     </div>
-                    <div style={{ color: '#64748b', fontSize: '0.78rem' }}>
-                      This plan is in <strong style={{ color: '#94a3b8' }}>{latestPlan.status}</strong> status.
-                      It must be approved before code generation can run.
-                      Use the <strong style={{ color: '#94a3b8' }}>Dashboard → Command Interface</strong> to run the full agent pipeline,
-                      or approve this plan manually below.
+                    {/* Run & Fix Until Stable — full width below the two runners */}
+                    <FixRunner planId={latestPlan.id} prUrl={latestPrUrl} />
+                    {/* Interactive Fix Chat — appears when auto-fix fails */}
+                    {showFixChat && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <ChatFixPanel
+                          planId={latestPlan.id}
+                          projectName={project.name}
+                          fixAttemptCount={fixAttemptCount}
+                          latestError={latestErrorSummary}
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : isNeedsRevision ? (
+                  <div
+                    style={{
+                      padding: '1.5rem',
+                      background: 'rgba(249,115,22,0.06)',
+                      border: '1px solid rgba(249,115,22,0.3)',
+                      borderRadius: 12,
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {/* Orange accent top line */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 2,
+                        background: 'linear-gradient(to right, #f97316, #ea580c, #fb923c)',
+                        borderRadius: '12px 12px 0 0',
+                      }}
+                    />
+
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1rem' }}>
+                      <div
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 10,
+                          background: 'rgba(249,115,22,0.12)',
+                          border: '1px solid rgba(249,115,22,0.3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '1.1rem',
+                          flexShrink: 0,
+                        }}
+                      >
+                        ⚠️
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div
+                          style={{
+                            color: '#fb923c',
+                            fontWeight: 800,
+                            fontSize: '0.95rem',
+                            marginBottom: '0.35rem',
+                            letterSpacing: '-0.01em',
+                          }}
+                        >
+                          Reviewer Flagged This Plan
+                        </div>
+                        <div style={{ color: '#94a3b8', fontSize: '0.82rem', lineHeight: 1.6 }}>
+                          The AI reviewer determined this plan needs revision before code generation can proceed.
+                          {latestPlan.reviewScore != null && (
+                            <>
+                              {' '}
+                              Review score:{' '}
+                              <strong style={{ color: '#fb923c' }}>{latestPlan.reviewScore}/10</strong>{' '}
+                              (threshold: 7.5).
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Reviewer concerns */}
+                    {latestPlan.verdictReason && (
+                      <div
+                        style={{
+                          background: 'rgba(7,13,26,0.6)',
+                          border: '1px solid rgba(30,58,95,0.5)',
+                          borderRadius: 10,
+                          padding: '1rem 1.25rem',
+                          marginBottom: '1.25rem',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '0.68rem',
+                            color: '#f97316',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                            marginBottom: '0.5rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                          }}
+                        >
+                          <span style={{ fontSize: '0.75rem' }}>💬</span>
+                          Reviewer Concerns
+                        </div>
+                        <div style={{ color: '#cbd5e1', fontSize: '0.82rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                          {latestPlan.verdictReason}
+                        </div>
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '0.75rem',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        paddingTop: '0.25rem',
+                        borderTop: '1px solid rgba(249,115,22,0.15)',
+                      }}
+                    >
+                      <ApprovePlanButton planId={latestPlan.id} variant="override" />
+                      <span style={{ color: '#475569', fontSize: '0.75rem' }}>
+                        Override will approve this plan and allow code generation to proceed.
+                      </span>
                     </div>
                   </div>
-                  <ApprovePlanButton planId={latestPlan.id} />
-                </div>
-              )}
+                ) : (
+                  <div
+                    style={{
+                      padding: '1.25rem',
+                      background: 'rgba(245,158,11,0.07)',
+                      border: '1px solid rgba(245,158,11,0.25)',
+                      borderRadius: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '1rem',
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          color: '#fbbf24',
+                          fontWeight: 700,
+                          fontSize: '0.85rem',
+                          marginBottom: '0.25rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                        }}
+                      >
+                        ⏳ Plan not yet approved
+                      </div>
+                      <div style={{ color: '#64748b', fontSize: '0.78rem' }}>
+                        This plan is in <strong style={{ color: '#94a3b8' }}>{latestPlan.status}</strong> status.
+                        It must be approved before code generation can run.
+                        Use the <strong style={{ color: '#94a3b8' }}>Dashboard → Command Interface</strong> to run the
+                        full agent pipeline, or approve this plan manually below.
+                      </div>
+                    </div>
+                    <ApprovePlanButton planId={latestPlan.id} />
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* Agent plans */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
-              <div style={{ width: 3, height: 18, borderRadius: 9999, background: 'linear-gradient(to bottom, #60a5fa, #818cf8)' }} />
-              <span style={{ color: '#94a3b8', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Agent Plans</span>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.6rem',
+                marginBottom: '1.25rem',
+              }}
+            >
+              {/* Gradient icon badge */}
+              <div
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  background: 'linear-gradient(135deg, rgba(96,165,250,0.2), rgba(129,140,248,0.2))',
+                  border: '1px solid rgba(96,165,250,0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.8rem',
+                  flexShrink: 0,
+                }}
+              >
+                📋
+              </div>
+              <span
+                style={{
+                  color: '#e2e8f0',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                }}
+              >
+                Agent Plans
+              </span>
               <span
                 style={{
                   background: 'rgba(30,58,95,0.5)',
-                  color: '#475569',
+                  color: '#64748b',
                   fontSize: '0.65rem',
                   fontWeight: 600,
-                  padding: '2px 7px',
+                  padding: '2px 8px',
                   borderRadius: 9999,
                   border: '1px solid rgba(30,58,95,0.7)',
                 }}
@@ -395,17 +634,52 @@ export default async function ProjectDetailPage({
               <div
                 style={{
                   textAlign: 'center',
-                  padding: '3rem 2rem',
+                  padding: '3.5rem 2rem',
                   background: 'rgba(13,21,38,0.6)',
                   backdropFilter: 'blur(10px)',
-                  borderRadius: 12,
+                  borderRadius: 14,
                   border: '1px dashed rgba(30,58,95,0.6)',
                 }}
               >
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🤖</div>
-                <p style={{ margin: 0, color: '#475569', fontSize: '0.875rem' }}>
-                  No agent plans yet — submit a coding request via the Dashboard to get started.
+                <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🤖</div>
+                <p
+                  style={{
+                    margin: 0,
+                    color: '#64748b',
+                    fontSize: '0.9rem',
+                    fontWeight: 500,
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  No agent plans yet
                 </p>
+                <p
+                  style={{
+                    margin: 0,
+                    color: '#475569',
+                    fontSize: '0.8rem',
+                    marginBottom: '1.25rem',
+                  }}
+                >
+                  Submit a coding request via the Dashboard to get started.
+                </p>
+                <Link
+                  href="/dashboard"
+                  style={{
+                    display: 'inline-block',
+                    padding: '0.55rem 1.3rem',
+                    background: 'linear-gradient(135deg, #d97706, #f59e0b)',
+                    color: '#000',
+                    border: 'none',
+                    borderRadius: 8,
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    textDecoration: 'none',
+                    boxShadow: '0 0 20px rgba(245,158,11,0.25)',
+                  }}
+                >
+                  Go to Dashboard
+                </Link>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -421,14 +695,28 @@ export default async function ProjectDetailPage({
                       key={plan.id}
                       style={{
                         background: 'rgba(13,21,38,0.8)',
-                        backdropFilter: 'blur(10px)',
+                        backdropFilter: 'blur(12px)',
                         border: '1px solid rgba(30,58,95,0.7)',
-                        borderRadius: 12,
-                        padding: '1.25rem 1.4rem',
+                        borderRadius: 14,
+                        padding: 0,
                         position: 'relative',
                         overflow: 'hidden',
+                        boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
                       }}
                     >
+                      {/* Top accent line using plan status color */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          right: 0,
+                          height: 2,
+                          background: `linear-gradient(to right, ${planCfg.dot}, ${planCfg.color})`,
+                          borderRadius: '14px 14px 0 0',
+                        }}
+                      />
+                      {/* Left edge bar */}
                       <div
                         style={{
                           position: 'absolute',
@@ -437,13 +725,22 @@ export default async function ProjectDetailPage({
                           bottom: 0,
                           width: 3,
                           background: planCfg.dot,
-                          borderRadius: '12px 0 0 12px',
+                          borderRadius: '14px 0 0 14px',
                         }}
                       />
-                      <div style={{ paddingLeft: '0.75rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                      <div style={{ padding: '1.25rem 1.4rem 1.25rem 1.75rem' }}>
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '0.85rem',
+                          }}
+                        >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                            <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9rem' }}>Plan #{plan.id}</span>
+                            <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '0.92rem' }}>
+                              Plan #{plan.id}
+                            </span>
                             <span
                               style={{
                                 fontSize: '0.65rem',
@@ -463,9 +760,13 @@ export default async function ProjectDetailPage({
                                   fontSize: '0.62rem',
                                   padding: '2px 7px',
                                   borderRadius: 9999,
-                                  background: plan.reviewScore >= 7.5 ? 'rgba(16,185,129,0.12)' : 'rgba(249,115,22,0.12)',
+                                  background:
+                                    plan.reviewScore >= 7.5
+                                      ? 'rgba(16,185,129,0.12)'
+                                      : 'rgba(249,115,22,0.12)',
                                   color: plan.reviewScore >= 7.5 ? '#34d399' : '#fb923c',
                                   fontWeight: 600,
+                                  border: `1px solid ${plan.reviewScore >= 7.5 ? '#10b981' : '#f97316'}40`,
                                 }}
                               >
                                 {plan.reviewScore}/10
@@ -473,43 +774,133 @@ export default async function ProjectDetailPage({
                             )}
                           </div>
                           {plan.createdAt && (
-                            <span style={{ fontSize: '0.7rem', color: '#334155' }}>
+                            <span style={{ fontSize: '0.7rem', color: '#475569' }}>
                               {new Date(plan.createdAt).toLocaleDateString()}
                             </span>
                           )}
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: '1rem',
+                          }}
+                        >
                           {productText && (
-                            <div>
-                              <div style={{ fontSize: '0.65rem', color: '#60a5fa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Product</div>
-                              <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5 }}>
-                                {productText.substring(0, 140)}{productText.length > 140 ? '…' : ''}
+                            <div
+                              style={{
+                                padding: '0.75rem',
+                                background: 'rgba(7,13,26,0.5)',
+                                borderRadius: 8,
+                                border: '1px solid rgba(30,58,95,0.4)',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: '0.65rem',
+                                  color: '#60a5fa',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.08em',
+                                  marginBottom: 6,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem',
+                                }}
+                              >
+                                <span style={{ width: 4, height: 4, borderRadius: 2, background: '#60a5fa', display: 'inline-block' }} />
+                                Product
+                              </div>
+                              <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                                {productText.substring(0, 140)}
+                                {productText.length > 140 ? '…' : ''}
                               </p>
                             </div>
                           )}
                           {architectText && (
-                            <div>
-                              <div style={{ fontSize: '0.65rem', color: '#c084fc', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Architecture</div>
-                              <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5 }}>
-                                {architectText.substring(0, 140)}{architectText.length > 140 ? '…' : ''}
+                            <div
+                              style={{
+                                padding: '0.75rem',
+                                background: 'rgba(7,13,26,0.5)',
+                                borderRadius: 8,
+                                border: '1px solid rgba(30,58,95,0.4)',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: '0.65rem',
+                                  color: '#c084fc',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.08em',
+                                  marginBottom: 6,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem',
+                                }}
+                              >
+                                <span style={{ width: 4, height: 4, borderRadius: 2, background: '#c084fc', display: 'inline-block' }} />
+                                Architecture
+                              </div>
+                              <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                                {architectText.substring(0, 140)}
+                                {architectText.length > 140 ? '…' : ''}
                               </p>
                             </div>
                           )}
                           {reviewText && (
-                            <div>
-                              <div style={{ fontSize: '0.65rem', color: '#34d399', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Review</div>
-                              <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5 }}>
-                                {reviewText.substring(0, 140)}{reviewText.length > 140 ? '…' : ''}
+                            <div
+                              style={{
+                                padding: '0.75rem',
+                                background: 'rgba(7,13,26,0.5)',
+                                borderRadius: 8,
+                                border: '1px solid rgba(30,58,95,0.4)',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: '0.65rem',
+                                  color: '#34d399',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.08em',
+                                  marginBottom: 6,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem',
+                                }}
+                              >
+                                <span style={{ width: 4, height: 4, borderRadius: 2, background: '#34d399', display: 'inline-block' }} />
+                                Review
+                              </div>
+                              <p style={{ margin: 0, fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                                {reviewText.substring(0, 140)}
+                                {reviewText.length > 140 ? '…' : ''}
                               </p>
                             </div>
                           )}
                         </div>
+
                         {planPrUrl && (
                           <a
                             href={planPrUrl}
                             target="_blank"
                             rel="noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: '0.75rem', fontSize: '0.78rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              marginTop: '0.85rem',
+                              fontSize: '0.78rem',
+                              color: '#60a5fa',
+                              textDecoration: 'none',
+                              fontWeight: 600,
+                              padding: '4px 10px',
+                              background: 'rgba(96,165,250,0.08)',
+                              borderRadius: 6,
+                              border: '1px solid rgba(96,165,250,0.2)',
+                            }}
                           >
                             🔗 View PR on GitHub ↗
                           </a>
@@ -545,6 +936,10 @@ function ApprovePlanButton({ planId, variant }: { planId: number; variant?: 'ove
           fontSize: '0.82rem',
           fontWeight: 700,
           whiteSpace: 'nowrap',
+          boxShadow: isOverride
+            ? '0 0 20px rgba(249,115,22,0.3)'
+            : '0 0 20px rgba(245,158,11,0.25)',
+          letterSpacing: '-0.01em',
         }}
       >
         {isOverride ? '⚡ Override & Approve' : '✅ Approve Plan'}

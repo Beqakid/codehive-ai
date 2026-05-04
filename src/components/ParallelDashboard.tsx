@@ -31,7 +31,7 @@ const agentToStep: Record<string, number> = {
 
 function StepBadges({ currentStep, status }: { currentStep: number; status: RunState['status'] }) {
   return (
-    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
+    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 10 }}>
       {STEPS.map((label, i) => {
         const done = i < currentStep || (status === 'done' && i <= currentStep)
         const active = i === currentStep && status === 'running'
@@ -40,16 +40,21 @@ function StepBadges({ currentStep, status }: { currentStep: number; status: RunS
             key={label}
             style={{
               fontSize: '0.62rem',
-              padding: '2px 7px',
+              padding: '3px 9px',
               borderRadius: 9999,
               fontWeight: 600,
+              letterSpacing: '0.02em',
               background: done
-                ? 'rgba(16,185,129,0.15)'
+                ? 'rgba(16,185,129,0.14)'
                 : active
-                  ? 'rgba(245,158,11,0.15)'
-                  : 'rgba(30,41,59,0.6)',
-              color: done ? '#34d399' : active ? '#fbbf24' : '#475569',
-              border: `1px solid ${done ? 'rgba(52,211,153,0.3)' : active ? 'rgba(251,191,36,0.4)' : 'rgba(30,58,95,0.4)'}`,
+                  ? 'rgba(245,158,11,0.14)'
+                  : 'rgba(13,21,38,0.7)',
+              color: done ? '#34d399' : active ? '#fbbf24' : '#64748b',
+              border: `1px solid ${done ? 'rgba(52,211,153,0.35)' : active ? 'rgba(251,191,36,0.4)' : 'rgba(30,58,95,0.5)'}`,
+              transition: 'all 0.25s ease',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
             }}
           >
             {active ? '⚡ ' : done ? '✓ ' : '○ '}
@@ -93,13 +98,26 @@ function ProjectRunCard({
 
   const glowColor =
     run.status === 'running'
-      ? '0 0 18px rgba(245,158,11,0.12)'
+      ? '0 0 24px rgba(245,158,11,0.12), 0 4px 20px rgba(0,0,0,0.3)'
       : run.status === 'done'
-        ? '0 0 18px rgba(52,211,153,0.08)'
-        : 'none'
+        ? '0 0 24px rgba(52,211,153,0.08), 0 4px 20px rgba(0,0,0,0.3)'
+        : run.status === 'error'
+          ? '0 0 24px rgba(239,68,68,0.08), 0 4px 20px rgba(0,0,0,0.3)'
+          : '0 4px 20px rgba(0,0,0,0.3)'
+
+  const accentGradient =
+    run.status === 'running'
+      ? 'linear-gradient(to right, #f59e0b, #fb923c)'
+      : run.status === 'done'
+        ? 'linear-gradient(to right, #10b981, #34d399)'
+        : run.status === 'error'
+          ? 'linear-gradient(to right, #ef4444, #f87171)'
+          : selected
+            ? 'linear-gradient(to right, #3b82f6, #60a5fa)'
+            : 'linear-gradient(to right, rgba(30,58,95,0.5), rgba(30,58,95,0.3))'
 
   const statusBadge = {
-    idle: { bg: 'rgba(30,41,59,0.6)', color: '#475569', label: 'Idle', dot: '#475569' },
+    idle: { bg: 'rgba(30,41,59,0.6)', color: '#64748b', label: 'Idle', dot: '#475569' },
     running: { bg: 'rgba(245,158,11,0.12)', color: '#fbbf24', label: 'Running', dot: '#f59e0b' },
     done: { bg: 'rgba(16,185,129,0.12)', color: '#34d399', label: 'Done', dot: '#10b981' },
     error: { bg: 'rgba(239,68,68,0.12)', color: '#f87171', label: 'Error', dot: '#ef4444' },
@@ -109,144 +127,175 @@ function ProjectRunCard({
     <div
       style={{
         border: `1px solid ${borderColor}`,
-        borderRadius: 12,
-        padding: '1.1rem',
-        background: 'rgba(13,21,38,0.85)',
-        backdropFilter: 'blur(10px)',
+        borderRadius: 14,
+        padding: 0,
+        background: 'rgba(13,21,38,0.8)',
+        backdropFilter: 'blur(14px)',
         boxShadow: glowColor,
         transition: 'border-color 0.25s, box-shadow 0.25s',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggle}
-            disabled={run.status === 'running'}
-            style={{ cursor: 'pointer', width: 15, height: 15, accentColor: '#f59e0b' }}
-          />
-          <div>
-            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#e2e8f0' }}>{project.name}</h3>
-            {project.description && (
-              <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: '#475569', lineHeight: 1.4 }}>
-                {project.description.length > 80
-                  ? project.description.substring(0, 80) + '…'
-                  : project.description}
-              </p>
-            )}
+      {/* Top accent line */}
+      <div
+        style={{
+          height: 2,
+          background: accentGradient,
+          width: '100%',
+        }}
+      />
+
+      <div style={{ padding: '1.1rem 1.2rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggle}
+              disabled={run.status === 'running'}
+              style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#f59e0b' }}
+            />
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: '0.85rem' }}>📂</span>
+                <h3 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: '#f1f5f9' }}>{project.name}</h3>
+              </div>
+              {project.description && (
+                <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: '#64748b', lineHeight: 1.4 }}>
+                  {project.description.length > 80
+                    ? project.description.substring(0, 80) + '…'
+                    : project.description}
+                </p>
+              )}
+            </div>
           </div>
+          <span
+            style={{
+              fontSize: '0.66rem',
+              padding: '3px 10px',
+              borderRadius: 9999,
+              background: statusBadge.bg,
+              color: statusBadge.color,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              border: `1px solid ${statusBadge.dot}40`,
+              letterSpacing: '0.02em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {run.status === 'running' && (
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: statusBadge.dot,
+                  display: 'inline-block',
+                  animation: 'pulse 1s infinite',
+                }}
+              />
+            )}
+            {run.status === 'done' && <span style={{ fontSize: '0.6rem' }}>✓</span>}
+            {run.status === 'error' && <span style={{ fontSize: '0.6rem' }}>✕</span>}
+            {statusBadge.label}
+          </span>
         </div>
-        <span
-          style={{
-            fontSize: '0.68rem',
-            padding: '3px 9px',
-            borderRadius: 9999,
-            background: statusBadge.bg,
-            color: statusBadge.color,
-            fontWeight: 700,
-            whiteSpace: 'nowrap',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            border: `1px solid ${statusBadge.dot}40`,
-          }}
-        >
-          {run.status === 'running' && (
-            <span
+
+        {/* Progress bar */}
+        {run.status === 'running' && (
+          <div style={{ background: 'rgba(7,13,26,0.8)', borderRadius: 9999, height: 3, overflow: 'hidden' }}>
+            <div
               style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: statusBadge.dot,
-                display: 'inline-block',
-                animation: 'pulse 1s infinite',
+                background: 'linear-gradient(to right, #f59e0b, #fb923c)',
+                height: '100%',
+                width: `${run.progress}%`,
+                transition: 'width 0.4s ease',
+                borderRadius: 9999,
+                boxShadow: '0 0 8px rgba(245,158,11,0.6)',
               }}
             />
-          )}
-          {statusBadge.label}
-        </span>
-      </div>
+          </div>
+        )}
 
-      {/* Progress bar */}
-      {run.status === 'running' && (
-        <div style={{ background: 'rgba(15,23,42,0.8)', borderRadius: 9999, height: 3, overflow: 'hidden' }}>
-          <div
-            style={{
-              background: 'linear-gradient(to right, #f59e0b, #fb923c)',
-              height: '100%',
-              width: `${run.progress}%`,
-              transition: 'width 0.4s ease',
-              borderRadius: 9999,
-              boxShadow: '0 0 6px rgba(245,158,11,0.6)',
-            }}
+        {/* Step badges */}
+        {run.status !== 'idle' && (
+          <StepBadges
+            currentStep={run.progress >= 100 ? 4 : Math.floor((run.progress / 100) * 4)}
+            status={run.status}
           />
-        </div>
-      )}
+        )}
 
-      {/* Step badges */}
-      {run.status !== 'idle' && (
-        <StepBadges
-          currentStep={run.progress >= 100 ? 4 : Math.floor((run.progress / 100) * 4)}
-          status={run.status}
-        />
-      )}
+        {/* Log tail */}
+        {run.logs.length > 0 && (
+          <div
+            ref={logsRef}
+            style={{
+              background: 'rgba(2,6,23,0.9)',
+              border: '1px solid rgba(30,58,95,0.4)',
+              borderRadius: 10,
+              padding: '0.55rem 0.8rem',
+              maxHeight: 110,
+              overflowY: 'auto',
+              fontSize: '0.68rem',
+              fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+              color: '#94a3b8',
+              lineHeight: 1.7,
+            }}
+          >
+            {run.logs.slice(-20).map((log, i) => (
+              <div
+                key={i}
+                style={{
+                  color:
+                    log.toLowerCase().includes('error')
+                      ? '#f87171'
+                      : log.includes('✅') || log.includes('done')
+                        ? '#34d399'
+                        : '#94a3b8',
+                }}
+              >
+                <span style={{ color: '#475569', marginRight: 6 }}>›</span>
+                {log}
+              </div>
+            ))}
+          </div>
+        )}
 
-      {/* Log tail */}
-      {run.logs.length > 0 && (
-        <div
-          ref={logsRef}
-          style={{
-            background: 'rgba(2,6,23,0.9)',
-            border: '1px solid rgba(30,58,95,0.5)',
-            borderRadius: 8,
-            padding: '0.5rem 0.75rem',
-            maxHeight: 110,
-            overflowY: 'auto',
-            fontSize: '0.68rem',
-            fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-            color: '#94a3b8',
-            lineHeight: 1.6,
-          }}
-        >
-          {run.logs.slice(-20).map((log, i) => (
-            <div
-              key={i}
+        {/* Footer */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, paddingTop: 6, borderTop: '1px solid rgba(30,58,95,0.3)' }}>
+          {(run.status === 'done' || run.planId) ? (
+            <Link
+              href={`/projects/${run.projectId ?? project.id}`}
               style={{
-                color:
-                  log.toLowerCase().includes('error')
-                    ? '#f87171'
-                    : log.includes('✅') || log.includes('done')
-                      ? '#34d399'
-                      : '#94a3b8',
+                fontSize: '0.72rem',
+                color: '#60a5fa',
+                textDecoration: 'none',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
               }}
             >
-              <span style={{ color: '#334155', marginRight: 6 }}>›</span>
-              {log}
-            </div>
-          ))}
+              View project
+              <span style={{ fontSize: '0.72rem' }}>→</span>
+            </Link>
+          ) : (
+            <div />
+          )}
+          {run.error && (
+            <p style={{ margin: 0, fontSize: '0.7rem', color: '#f87171', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: '0.65rem' }}>⚠</span>
+              {run.error}
+            </p>
+          )}
         </div>
-      )}
-
-      {/* Footer */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
-        {(run.status === 'done' || run.planId) ? (
-          <Link
-            href={`/projects/${run.projectId ?? project.id}`}
-            style={{ fontSize: '0.72rem', color: '#60a5fa', textDecoration: 'none', fontWeight: 600 }}
-          >
-            View project →
-          </Link>
-        ) : (
-          <div />
-        )}
-        {run.error && (
-          <p style={{ margin: 0, fontSize: '0.7rem', color: '#f87171' }}>{run.error}</p>
-        )}
       </div>
     </div>
   )
@@ -451,190 +500,293 @@ export default function ParallelDashboard({ projects }: { projects: Project[] })
   return (
     <div
       style={{
-        background: 'rgba(13,21,38,0.75)',
+        background: 'rgba(13,21,38,0.8)',
         backdropFilter: 'blur(14px)',
         border: '1px solid rgba(30,58,95,0.7)',
         borderRadius: 16,
-        padding: '1.75rem',
+        padding: 0,
         boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
-      {/* Stats bar */}
-      {(anyRunning || doneCount > 0) && (
+      {/* Header section */}
+      <div style={{ padding: '1.5rem 1.75rem 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(59,130,246,0.2))',
+              border: '1px solid rgba(139,92,246,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.1rem',
+            }}
+          >
+            🚀
+          </div>
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.01em' }}>
+              Parallel Runner
+            </h2>
+            <p style={{ margin: '2px 0 0', fontSize: '0.72rem', color: '#64748b' }}>
+              Run AI agents across multiple projects simultaneously
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Rainbow accent line */}
+      <div
+        style={{
+          height: 2,
+          background: 'linear-gradient(to right, #3b82f6, #8b5cf6, #f59e0b, #ef4444)',
+          margin: '0 0 0',
+        }}
+      />
+
+      <div style={{ padding: '1.5rem 1.75rem' }}>
+        {/* Stats bar */}
+        {(anyRunning || doneCount > 0) && (
+          <div
+            style={{
+              display: 'flex',
+              gap: '1.25rem',
+              marginBottom: '1.25rem',
+              padding: '0.7rem 1rem',
+              background: 'rgba(7,13,26,0.6)',
+              borderRadius: 10,
+              border: '1px solid rgba(30,58,95,0.5)',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            {runningCount > 0 && (
+              <span style={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: '#f59e0b',
+                    display: 'inline-block',
+                    boxShadow: '0 0 6px rgba(245,158,11,0.6)',
+                    animation: 'pulse 1s infinite',
+                  }}
+                />
+                {runningCount} running
+              </span>
+            )}
+            {doneCount > 0 && (
+              <span style={{ color: '#34d399', fontWeight: 700, fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: '0.7rem' }}>✓</span>
+                {doneCount} completed
+              </span>
+            )}
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: '0.72rem', color: '#475569' }}>
+              {selected.size} of {projects.length} selected
+            </span>
+          </div>
+        )}
+
+        {/* Prompt input */}
+        <div style={{ marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 6,
+                background: 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(217,119,6,0.2))',
+                border: '1px solid rgba(245,158,11,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.6rem',
+              }}
+            >
+              💬
+            </div>
+            <label
+              style={{
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                color: '#94a3b8',
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+              }}
+            >
+              Coding Request
+            </label>
+            <span style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 500 }}>
+              — sent to all selected projects
+            </span>
+          </div>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            disabled={anyRunning}
+            rows={2}
+            style={{
+              width: '100%',
+              padding: '0.75rem 1rem',
+              borderRadius: 10,
+              border: '1px solid rgba(30,58,95,0.8)',
+              background: 'rgba(7,13,26,0.7)',
+              color: '#e2e8f0',
+              fontSize: '0.85rem',
+              fontFamily: 'inherit',
+              resize: 'vertical',
+              boxSizing: 'border-box',
+              opacity: anyRunning ? 0.5 : 1,
+              outline: 'none',
+              lineHeight: 1.6,
+              transition: 'border-color 0.2s',
+            }}
+          />
+        </div>
+
+        {/* Action bar */}
         <div
           style={{
             display: 'flex',
-            gap: '1rem',
-            marginBottom: '1.25rem',
-            padding: '0.65rem 1rem',
-            background: 'rgba(7,13,26,0.6)',
-            borderRadius: 10,
-            border: '1px solid rgba(30,58,95,0.5)',
+            gap: '0.6rem',
+            marginBottom: '1.5rem',
             flexWrap: 'wrap',
+            alignItems: 'center',
           }}
         >
-          {runningCount > 0 && (
-            <span style={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
-              {runningCount} running
-            </span>
-          )}
-          {doneCount > 0 && (
-            <span style={{ color: '#34d399', fontWeight: 700, fontSize: '0.8rem' }}>
-              ✓ {doneCount} completed
-            </span>
+          <button
+            onClick={selectAll}
+            disabled={anyRunning}
+            style={darkGhostBtn}
+          >
+            Select All
+          </button>
+          <button onClick={selectNone} disabled={anyRunning} style={darkGhostBtn}>
+            Clear
+          </button>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
+            {selected.size} / {projects.length} selected
+          </span>
+          {anyRunning ? (
+            <button
+              onClick={stopAll}
+              style={{
+                padding: '0.5rem 1.2rem',
+                background: 'linear-gradient(135deg, rgba(239,68,68,0.2), rgba(220,38,38,0.2))',
+                color: '#f87171',
+                border: '1px solid rgba(239,68,68,0.4)',
+                borderRadius: 10,
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 0 16px rgba(239,68,68,0.1)',
+              }}
+            >
+              ⏹ Stop All
+            </button>
+          ) : (
+            <button
+              onClick={runSelected}
+              disabled={selected.size === 0}
+              style={{
+                padding: '0.5rem 1.4rem',
+                background: selected.size === 0
+                  ? 'rgba(30,41,59,0.5)'
+                  : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: selected.size === 0 ? '#475569' : '#000',
+                border: selected.size === 0
+                  ? '1px solid rgba(30,58,95,0.5)'
+                  : '1px solid rgba(245,158,11,0.6)',
+                borderRadius: 10,
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: selected.size === 0 ? 'none' : '0 0 20px rgba(245,158,11,0.2)',
+                opacity: selected.size === 0 ? 0.6 : 1,
+              }}
+            >
+              ▶ Run {selected.size > 0 ? `${selected.size} Selected` : 'Selected'}
+            </button>
           )}
         </div>
-      )}
 
-      {/* Prompt input */}
-      <div style={{ marginBottom: '1.1rem' }}>
-        <label
-          style={{
-            display: 'block',
-            fontSize: '0.7rem',
-            fontWeight: 700,
-            color: '#64748b',
-            marginBottom: 6,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-          }}
-        >
-          Coding request — sent to all selected projects
-        </label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          disabled={anyRunning}
-          rows={2}
-          style={{
-            width: '100%',
-            padding: '0.7rem 0.9rem',
-            borderRadius: 10,
-            border: '1px solid rgba(30,58,95,0.8)',
-            background: 'rgba(7,13,26,0.7)',
-            color: '#e2e8f0',
-            fontSize: '0.85rem',
-            fontFamily: 'inherit',
-            resize: 'vertical',
-            boxSizing: 'border-box',
-            opacity: anyRunning ? 0.5 : 1,
-            outline: 'none',
-          }}
-        />
-      </div>
-
-      {/* Action bar */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '0.6rem',
-          marginBottom: '1.5rem',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-        }}
-      >
-        <button
-          onClick={selectAll}
-          disabled={anyRunning}
-          style={darkGhostBtn}
-        >
-          Select All
-        </button>
-        <button onClick={selectNone} disabled={anyRunning} style={darkGhostBtn}>
-          Clear
-        </button>
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: '0.75rem', color: '#475569' }}>
-          {selected.size} / {projects.length} selected
-        </span>
-        {anyRunning ? (
-          <button
-            onClick={stopAll}
+        {/* Project grid */}
+        {projects.length === 0 ? (
+          <div
             style={{
-              ...darkActionBtn,
-              background: 'rgba(239,68,68,0.15)',
-              color: '#f87171',
-              border: '1px solid rgba(239,68,68,0.4)',
+              textAlign: 'center',
+              padding: '3.5rem 2rem',
+              background: 'rgba(7,13,26,0.5)',
+              borderRadius: 14,
+              border: '1px dashed rgba(30,58,95,0.6)',
             }}
           >
-            ⏹ Stop All
-          </button>
+            <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>🐝</div>
+            <p style={{ color: '#94a3b8', margin: '0 0 0.3rem', fontSize: '0.95rem', fontWeight: 600 }}>
+              No projects yet
+            </p>
+            <p style={{ color: '#475569', margin: '0 0 1.25rem', fontSize: '0.8rem' }}>
+              Create your first project to start running AI agents
+            </p>
+            <Link
+              href="/projects/new"
+              style={{
+                display: 'inline-block',
+                padding: '0.55rem 1.5rem',
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#000',
+                borderRadius: 10,
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                textDecoration: 'none',
+                boxShadow: '0 0 20px rgba(245,158,11,0.2)',
+                transition: 'all 0.2s',
+              }}
+            >
+              + New Project
+            </Link>
+          </div>
         ) : (
-          <button
-            onClick={runSelected}
-            disabled={selected.size === 0}
+          <div
             style={{
-              ...darkActionBtn,
-              opacity: selected.size === 0 ? 0.35 : 1,
-              cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+              gap: '1rem',
             }}
           >
-            ▶ Run {selected.size > 0 ? `${selected.size} Selected` : 'Selected'}
-          </button>
+            {projects.map((p) => (
+              <ProjectRunCard
+                key={p.id}
+                project={p}
+                selected={selected.has(p.id)}
+                onToggle={() => toggleSelect(p.id)}
+                run={
+                  runs[p.id] || { status: 'idle', logs: [], currentStep: '', progress: 0 }
+                }
+              />
+            ))}
+          </div>
         )}
       </div>
-
-      {/* Project grid */}
-      {projects.length === 0 ? (
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '3.5rem 2rem',
-            background: 'rgba(7,13,26,0.5)',
-            borderRadius: 12,
-            border: '1px dashed rgba(30,58,95,0.6)',
-          }}
-        >
-          <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>🐝</div>
-          <p style={{ color: '#475569', margin: '0 0 1rem', fontSize: '0.9rem' }}>No projects yet — start building</p>
-          <Link
-            href="/projects/new"
-            style={{
-              display: 'inline-block',
-              padding: '0.5rem 1.25rem',
-              background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-              color: '#000',
-              borderRadius: 8,
-              fontWeight: 700,
-              fontSize: '0.85rem',
-              textDecoration: 'none',
-            }}
-          >
-            + New Project
-          </Link>
-        </div>
-      ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-            gap: '1rem',
-          }}
-        >
-          {projects.map((p) => (
-            <ProjectRunCard
-              key={p.id}
-              project={p}
-              selected={selected.has(p.id)}
-              onToggle={() => toggleSelect(p.id)}
-              run={
-                runs[p.id] || { status: 'idle', logs: [], currentStep: '', progress: 0 }
-              }
-            />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
 
 const darkActionBtn: React.CSSProperties = {
-  padding: '0.45rem 1.1rem',
+  padding: '0.5rem 1.2rem',
   background: 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(217,119,6,0.2))',
   color: '#fbbf24',
   border: '1px solid rgba(245,158,11,0.4)',
-  borderRadius: 8,
+  borderRadius: 10,
   fontWeight: 700,
   fontSize: '0.8rem',
   cursor: 'pointer',
@@ -642,12 +794,13 @@ const darkActionBtn: React.CSSProperties = {
 }
 
 const darkGhostBtn: React.CSSProperties = {
-  padding: '0.4rem 0.85rem',
-  background: 'rgba(30,41,59,0.5)',
+  padding: '0.45rem 0.95rem',
+  background: 'rgba(13,21,38,0.7)',
   color: '#94a3b8',
   border: '1px solid rgba(30,58,95,0.6)',
-  borderRadius: 8,
+  borderRadius: 10,
   fontSize: '0.78rem',
+  fontWeight: 600,
   cursor: 'pointer',
   transition: 'all 0.2s',
 }

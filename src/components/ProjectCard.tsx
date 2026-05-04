@@ -30,30 +30,34 @@ export default function ProjectCard({ id, name, description, status, repoUrl }: 
     <Link href={`/projects/${id}`} style={{ textDecoration: 'none' }}>
       <div
         style={{
-          background: 'rgba(13,21,38,0.82)',
-          backdropFilter: 'blur(12px)',
+          background: 'rgba(13,21,38,0.8)',
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
           border: '1px solid rgba(30,58,95,0.7)',
-          borderRadius: 13,
-          padding: '1.25rem 1.35rem',
-          transition: 'border-color 0.2s, transform 0.15s, box-shadow 0.2s',
+          borderRadius: 14,
+          padding: '1.35rem 1.4rem 1.1rem',
+          transition: 'border-color 0.25s, transform 0.2s, box-shadow 0.25s',
           cursor: 'pointer',
           position: 'relative',
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
         }}
         onMouseEnter={(e) => {
           const el = e.currentTarget
           el.style.borderColor = 'rgba(245,158,11,0.45)'
-          el.style.transform = 'translateY(-2px)'
-          el.style.boxShadow = '0 8px 28px rgba(0,0,0,0.35)'
+          el.style.transform = 'translateY(-3px) scale(1.005)'
+          el.style.boxShadow = `0 12px 40px rgba(0,0,0,0.4), 0 0 20px ${cfg.dot}18`
         }}
         onMouseLeave={(e) => {
           const el = e.currentTarget
           el.style.borderColor = 'rgba(30,58,95,0.7)'
-          el.style.transform = 'translateY(0)'
-          el.style.boxShadow = 'none'
+          el.style.transform = 'translateY(0) scale(1)'
+          el.style.boxShadow = '0 4px 24px rgba(0,0,0,0.25)'
         }}
       >
-        {/* Accent line */}
+        {/* Top accent gradient line using project status color */}
         <div
           style={{
             position: 'absolute',
@@ -61,36 +65,74 @@ export default function ProjectCard({ id, name, description, status, repoUrl }: 
             left: 0,
             right: 0,
             height: 2,
-            background: `linear-gradient(to right, ${cfg.dot}, transparent)`,
-            borderRadius: '13px 13px 0 0',
+            background: `linear-gradient(to right, ${cfg.dot}, ${cfg.color}88, transparent)`,
+            borderRadius: '14px 14px 0 0',
           }}
         />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
-          <h3
-            style={{
-              margin: 0,
-              fontSize: '0.95rem',
-              fontWeight: 700,
-              color: '#e2e8f0',
-              lineHeight: 1.3,
-              maxWidth: '75%',
-            }}
-          >
-            {name}
-          </h3>
+        {/* Header row: icon + name + status badge */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.7rem', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
+            {/* Project icon badge */}
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                minWidth: 28,
+                borderRadius: 8,
+                background: `linear-gradient(135deg, ${cfg.dot}22, ${cfg.color}11)`,
+                border: `1px solid ${cfg.dot}30`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.8rem',
+              }}
+            >
+              📁
+            </div>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: '0.95rem',
+                fontWeight: 700,
+                color: '#f1f5f9',
+                lineHeight: 1.35,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {name}
+            </h3>
+          </div>
           <span
             style={{
-              fontSize: '0.65rem',
-              padding: '3px 9px',
+              fontSize: '0.62rem',
+              padding: '3px 10px',
               borderRadius: 9999,
               background: cfg.bg,
               color: cfg.color,
               fontWeight: 700,
               border: `1px solid ${cfg.dot}40`,
               whiteSpace: 'nowrap',
+              letterSpacing: '0.03em',
+              textTransform: 'uppercase',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              flexShrink: 0,
             }}
           >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: cfg.dot,
+                display: 'inline-block',
+                boxShadow: `0 0 6px ${cfg.dot}60`,
+              }}
+            />
             {cfg.label}
           </span>
         </div>
@@ -100,8 +142,8 @@ export default function ProjectCard({ id, name, description, status, repoUrl }: 
             style={{
               margin: '0 0 0.85rem',
               fontSize: '0.8rem',
-              color: '#475569',
-              lineHeight: 1.5,
+              color: '#94a3b8',
+              lineHeight: 1.55,
               display: '-webkit-box',
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
@@ -112,18 +154,48 @@ export default function ProjectCard({ id, name, description, status, repoUrl }: 
           </p>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
+        {/* Spacer to push footer down */}
+        <div style={{ flex: 1 }} />
+
+        {/* Footer divider line */}
+        <div
+          style={{
+            height: 1,
+            background: 'rgba(30,58,95,0.5)',
+            marginBottom: '0.7rem',
+          }}
+        />
+
+        {/* Footer */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {repoUrl ? (
-            <span style={{ fontSize: '0.7rem', color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span>⎇</span>
-              <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" fill="#64748b"/>
+              </svg>
+              <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {repoUrl.replace('https://github.com/', '')}
               </span>
             </span>
           ) : (
-            <span style={{ fontSize: '0.7rem', color: '#1e3a5f' }}>No repo linked</span>
+            <span style={{ fontSize: '0.7rem', color: '#475569', fontStyle: 'italic' }}>No repo linked</span>
           )}
-          <span style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 600 }}>Open →</span>
+          <span
+            style={{
+              fontSize: '0.7rem',
+              color: '#f59e0b',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 3,
+              letterSpacing: '0.02em',
+            }}
+          >
+            Open
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M4.5 2.5L8 6L4.5 9.5" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </span>
         </div>
       </div>
     </Link>
