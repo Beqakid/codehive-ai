@@ -5,7 +5,7 @@
  * and commits them to the PR branch. Also bootstraps sandbox files (package.json, tsconfig, tests).
  * If the plan has no associated PR URL (e.g. PR creation failed during orchestration),
  * creates a new branch and PR before generating code.
- * Auto-provisions .github/workflows/sandbox.yml to any target repo that doesn't have it.
+ * Auto-creates the target repo if missing, then provisions .github/workflows/sandbox.yml.
  * Exports: runCodeOrchestrator, CodeGenSSEEvent.
  */
 
@@ -17,6 +17,7 @@ import {
   getDefaultBranchSha,
   createBranch,
   createPullRequest,
+  ensureRepoExists,
 } from '../lib/github'
 import { withRetry } from '../lib/retry'
 
@@ -190,7 +191,24 @@ export async function runCodeOrchestrator(
   const parsedRepo = repoUrl ? parseGithubUrl(repoUrl) : null
   if (!parsedRepo) throw new Error('Plan has no associated repo URL')
 
-  // 2. Auto-provision sandbox workflow if missing
+  // 2. Auto-create repo if it doesn't exist yet
+  onEvent({ type: 'start', message: `🔍 Checking repository ${parsedRepo.owner}/${parsedRepo.repo}...` })
+  try {
+    const repoStatus = await ensureRepoExists(parsedRepo.owner, parsedRepo.repo)
+    if (repoStatus === 'created') {
+      onEvent({
+        type: 'start',
+        message: `📦 Repository ${parsedRepo.owner}/${parsedRepo.repo} created on GitHub!`,
+      })
+    }
+  } catch (err) {
+    onEvent({
+      type: 'start',
+      message: `⚠️ Could not auto-create repo: ${String(err)} — proceeding anyway`,
+    })
+  }
+
+  // 3. Auto-provision sandbox workflow if missing
   await ensureSandboxWorkflow(parsedRepo.owner, parsedRepo.repo, onEvent)
 
   // Derive codingRequestId from populated codingRequest field
@@ -207,7 +225,7 @@ export async function runCodeOrchestrator(
     ghHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
   }
 
-  // 3. Self-heal: if PR URL is missing, create branch + PR now
+  // 4. Self-heal: if PR URL is missing, create branch + PR now
   if (!prUrl) {
     onEvent({
       type: 'start',
@@ -285,7 +303,7 @@ export async function runCodeOrchestrator(
     message: `📂 Fetching PR #${prNumber} from ${parsedRepo.owner}/${parsedRepo.repo}...`,
   })
 
-  // 4. Get PR head branch name from GitHub
+  // 5. Get PR head branch name from GitHub
   const prResp = await fetch(
     `https://api.github.com/repos/${parsedRepo.owner}/${parsedRepo.repo}/pulls/${prNumber}`,
     { headers: ghHeaders },
@@ -298,7 +316,7 @@ export async function runCodeOrchestrator(
 
   onEvent({ type: 'start', message: `🌿 Branch: ${branchName}` })
 
-  // 5. Fetch plan markdown from the PR branch
+  // 6. Fetch plan markdown from the PR branch
   onEvent({ type: 'start', message: '📄 Fetching plan markdown from branch...' })
 
   let planMarkdown = ''
@@ -326,7 +344,7 @@ export async function runCodeOrchestrator(
 
   onEvent({ type: 'start', message: '🗂️ Parsing plan to extract files...' })
 
-  // 6. Parse plan to get file list
+  // 7. Parse plan to get file list
   const filesToGenerate = await parsePlanForFiles(planMarkdown)
 
   if (filesToGenerate.length === 0) {
@@ -337,7 +355,7 @@ export async function runCodeOrchestrator(
 
   onEvent({ type: 'start', message: `📋 ${filesToGenerate.length} file(s) to generate` })
 
-  // 7. Generate each file and commit to branch
+  // 8. Generate each file and commit to branch
   let committed = 0
 
   for (let i = 0; i < filesToGenerate.length; i++) {
@@ -375,7 +393,7 @@ export async function runCodeOrchestrator(
     }
   }
 
-  // 8. Phase 4 — Commit sandbox bootstrap files (package.json, tsconfig, test file)
+  // 9. Phase 4 — Commit sandbox bootstrap files (package.json, tsconfig, test file)
   // Only add these if they aren't already in the generated file list
   const generatedPaths = new Set(filesToGenerate.map((f) => f.path))
 

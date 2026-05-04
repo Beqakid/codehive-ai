@@ -3,7 +3,7 @@
  * @description GitHub REST API utilities using native fetch (no extra dependencies).
  * Provides repo context fetching, branch creation, file commits, and PR creation.
  * Exports: parseGithubUrl, getRepoContext, getDefaultBranchSha, createBranch,
- * createOrUpdateFile, createPullRequest, RepoContext, RepoFile.
+ * createOrUpdateFile, createPullRequest, ensureRepoExists, RepoContext, RepoFile.
  * @note All mutating operations check response status and throw on failure.
  */
 
@@ -201,4 +201,52 @@ export async function createPullRequest(
   }
   const data = (await resp.json()) as { html_url: string }
   return data.html_url || ''
+}
+
+/**
+ * Ensures a GitHub repo exists under the given owner.
+ * If the repo is missing (404), creates it as a private auto-initialized repo.
+ * Returns 'created' if a new repo was made, 'exists' if it was already there.
+ * Uses POST /user/repos so the token must belong to `owner`.
+ */
+export async function ensureRepoExists(
+  owner: string,
+  repo: string,
+): Promise<'created' | 'exists'> {
+  const headers = githubHeaders()
+
+  // Check if the repo already exists
+  const checkResp = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers })
+
+  if (checkResp.ok) return 'exists'
+
+  if (checkResp.status !== 404) {
+    throw new Error(
+      `ensureRepoExists: unexpected status ${checkResp.status} checking ${owner}/${repo}`,
+    )
+  }
+
+  // Repo doesn't exist — create it
+  const createResp = await fetch('https://api.github.com/user/repos', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      name: repo,
+      private: true,
+      auto_init: true, // creates initial commit so branches can be made immediately
+      description: `CodeHive AI — ${repo}`,
+    }),
+  })
+
+  if (!createResp.ok) {
+    const errBody = await createResp.text().catch(() => 'unknown')
+    throw new Error(
+      `ensureRepoExists: failed to create ${owner}/${repo} (${createResp.status}): ${errBody.slice(0, 200)}`,
+    )
+  }
+
+  // Give GitHub a moment to fully initialize the repo before we push files
+  await new Promise((resolve) => setTimeout(resolve, 3000))
+
+  return 'created'
 }
