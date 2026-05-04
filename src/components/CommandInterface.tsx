@@ -73,6 +73,27 @@ const AGENT_ICONS: Record<string, string> = {
   sandbox: '🧪',
 }
 
+const REPOS: { value: string; label: string; icon: string; desc: string }[] = [
+  {
+    value: 'https://github.com/Beqakid/codehive-sanbox',
+    label: 'codehive-sanbox',
+    icon: '🧪',
+    desc: 'Default AI sandbox',
+  },
+  {
+    value: 'https://github.com/Beqakid/viliniu',
+    label: 'viliniu',
+    icon: '🌾',
+    desc: 'Farmers platform (PayloadCMS)',
+  },
+  {
+    value: 'https://github.com/Beqakid/gotocare',
+    label: 'gotocare',
+    icon: '🏥',
+    desc: 'Healthcare app (React + Supabase)',
+  },
+]
+
 export default function CommandInterface() {
   const [prompt, setPrompt] = useState('')
   const [projectName, setProjectName] = useState('')
@@ -92,6 +113,7 @@ export default function CommandInterface() {
   const [assumptions, setAssumptions] = useState<string[]>([])
   const [editingEnriched, setEditingEnriched] = useState(false)
   const [coachLoading, setCoachLoading] = useState(false)
+  const [targetRepo, setTargetRepo] = useState(REPOS[0].value)
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -192,7 +214,7 @@ export default function CommandInterface() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt: finalPrompt, mode, projectName: projectName.trim() || undefined }),
+        body: JSON.stringify({ prompt: finalPrompt, mode, projectName: projectName.trim() || undefined, targetRepo }),
         signal: abort.signal,
       })
 
@@ -469,6 +491,50 @@ export default function CommandInterface() {
                 )
               })}
             </div>
+          </div>
+        </div>
+
+        {/* ── Target repository ── */}
+        <div>
+          <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            Target repository
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            {REPOS.map((r) => {
+              const active = targetRepo === r.value
+              return (
+                <button
+                  key={r.value}
+                  onClick={() => !disabled && setTargetRepo(r.value)}
+                  disabled={disabled}
+                  style={{
+                    position: 'relative',
+                    padding: '10px 14px',
+                    borderRadius: 12,
+                    textAlign: 'left',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    opacity: disabled ? 0.5 : 1,
+                    background: active ? 'rgba(16,185,129,0.07)' : 'rgba(15,23,42,0.3)',
+                    border: `1px solid ${active ? 'rgba(16,185,129,0.4)' : 'rgba(51,65,85,0.35)'}`,
+                    boxShadow: active ? '0 4px 14px rgba(16,185,129,0.08)' : 'none',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {active && (
+                    <span style={{ position: 'absolute', top: 7, right: 9 }}>
+                      <svg style={{ width: 12, height: 12, display: 'block' }} fill="#34d399" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    </span>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                    <span style={{ fontSize: 13 }}>{r.icon}</span>
+                    <span style={{ fontWeight: 700, fontSize: 12, color: active ? '#6ee7b7' : '#94a3b8', fontFamily: 'monospace' }}>{r.label}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: active ? '#4ade80' : '#475569', lineHeight: 1.4 }}>{r.desc}</div>
+                </button>
+              )
+            })}
           </div>
         </div>
 

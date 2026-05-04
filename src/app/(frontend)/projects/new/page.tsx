@@ -5,13 +5,39 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import HiveBackground from '@/components/HiveBackground'
 
+const PRESET_REPOS = [
+  {
+    value: 'https://github.com/Beqakid/codehive-sanbox',
+    label: '🧪 codehive-sanbox',
+    desc: 'Default AI sandbox',
+  },
+  {
+    value: 'https://github.com/Beqakid/viliniu',
+    label: '🌾 viliniu',
+    desc: 'Farmers platform (PayloadCMS)',
+  },
+  {
+    value: 'https://github.com/Beqakid/gotocare',
+    label: '🏥 gotocare',
+    desc: 'Healthcare app (React + Supabase)',
+  },
+  {
+    value: 'custom',
+    label: '⚙️ Custom',
+    desc: 'Enter a custom GitHub URL',
+  },
+]
+
 export default function NewProjectPage() {
   const router = useRouter()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [repoUrl, setRepoUrl] = useState('')
+  const [repoPreset, setRepoPreset] = useState(PRESET_REPOS[0].value)
+  const [customRepoUrl, setCustomRepoUrl] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const repoUrl = repoPreset === 'custom' ? customRepoUrl : repoPreset
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -169,27 +195,58 @@ export default function NewProjectPage() {
                 />
               </div>
 
-              {/* Repo URL */}
+              {/* Target Repo */}
               <div style={{ marginBottom: '2rem' }}>
                 <label style={labelStyle}>
-                  GitHub Repo URL{' '}
-                  <span style={{ color: '#334155', fontWeight: 400 }}>(optional)</span>
+                  Target Repository
                 </label>
-                <input
-                  type="url"
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                  placeholder="https://github.com/you/repo"
-                  style={inputStyle}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = 'rgba(245,158,11,0.6)'
-                    e.target.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.08)'
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = 'rgba(30,58,95,0.8)'
-                    e.target.style.boxShadow = 'none'
-                  }}
-                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: repoPreset === 'custom' ? 10 : 0 }}>
+                  {PRESET_REPOS.map((r) => {
+                    const active = repoPreset === r.value
+                    return (
+                      <button
+                        key={r.value}
+                        type="button"
+                        onClick={() => setRepoPreset(r.value)}
+                        style={{
+                          padding: '9px 12px',
+                          borderRadius: 9,
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          background: active ? 'rgba(245,158,11,0.08)' : 'rgba(7,13,26,0.5)',
+                          border: `1px solid ${active ? 'rgba(245,158,11,0.5)' : 'rgba(30,58,95,0.8)'}`,
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: 12, color: active ? '#fbbf24' : '#94a3b8', marginBottom: 2 }}>
+                          {r.label}
+                        </div>
+                        <div style={{ fontSize: 11, color: active ? '#d97706' : '#475569' }}>
+                          {r.desc}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Custom URL input */}
+                {repoPreset === 'custom' && (
+                  <input
+                    type="url"
+                    value={customRepoUrl}
+                    onChange={(e) => setCustomRepoUrl(e.target.value)}
+                    placeholder="https://github.com/you/repo"
+                    style={inputStyle}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = 'rgba(245,158,11,0.6)'
+                      e.target.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.08)'
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(30,58,95,0.8)'
+                      e.target.style.boxShadow = 'none'
+                    }}
+                  />
+                )}
               </div>
 
               {/* Error */}
@@ -264,7 +321,7 @@ export default function NewProjectPage() {
               color: '#1e3a5f',
             }}
           >
-            You can link a GitHub repo and connect AI agents after creation.
+            AI agents will read the selected repo&apos;s existing code for context when generating.
           </p>
         </div>
       </div>

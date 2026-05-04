@@ -6,6 +6,7 @@
  * Uses TransformStream for Cloudflare Workers SSE compatibility.
  * @note Rate limited to 5 commands per user per minute.
  * @note Codegen is GATED on plan approval — if reviewer says needs_revision, pipeline stops.
+ * @note targetRepo body param selects which GitHub repo to push code to (defaults to codehive-sanbox).
  */
 
 export const dynamic = 'force-dynamic'
@@ -21,10 +22,18 @@ type Mode = 'plan_only' | 'plan_code' | 'full_build'
 const MAX_COMMANDS_PER_MINUTE = 5
 const MAX_LOG_LENGTH = 8000 // Truncate logs to avoid D1 column size issues
 
+const DEFAULT_REPO_URL = 'https://github.com/Beqakid/codehive-sanbox'
+const ALLOWED_REPO_URLS = [
+  'https://github.com/Beqakid/codehive-sanbox',
+  'https://github.com/Beqakid/viliniu',
+  'https://github.com/Beqakid/gotocare',
+]
+
 interface CommandBody {
   prompt?: unknown
   mode?: unknown
   projectName?: unknown
+  targetRepo?: unknown
 }
 
 export async function POST(request: Request) {
@@ -90,6 +99,12 @@ export async function POST(request: Request) {
       ? body.projectName.trim()
       : `Command: ${prompt.slice(0, 40)}${prompt.length > 40 ? '\u2026' : ''}`
 
+  // Validate targetRepo — only allow known repos (or fall back to default)
+  const targetRepoUrl =
+    typeof body.targetRepo === 'string' && ALLOWED_REPO_URLS.includes(body.targetRepo)
+      ? body.targetRepo
+      : DEFAULT_REPO_URL
+
   if (!prompt) {
     return Response.json({ error: 'prompt is required' }, { status: 400 })
   }
@@ -109,7 +124,7 @@ export async function POST(request: Request) {
         description: `Auto-created from global command interface on ${new Date().toUTCString()}`,
         status: 'active',
         owner: user.id,
-        repoUrl: 'https://github.com/Beqakid/codehive-sanbox',
+        repoUrl: targetRepoUrl,
       },
     })
 
