@@ -7,6 +7,7 @@
  * @note Rate limited to 5 commands per user per minute.
  * @note Codegen is GATED on plan approval — if reviewer says needs_revision, pipeline stops.
  * @note targetRepo body param selects which GitHub repo to push code to (defaults to codehive-sanbox).
+ * @note autopilot body param: if true + score >= 8.5 + verdict approved → auto-proceeds to codegen.
  */
 
 export const dynamic = 'force-dynamic'
@@ -21,6 +22,7 @@ type Mode = 'plan_only' | 'plan_code' | 'full_build'
 
 const MAX_COMMANDS_PER_MINUTE = 5
 const MAX_LOG_LENGTH = 8000 // Truncate logs to avoid D1 column size issues
+const AUTOPILOT_SCORE_THRESHOLD = 8.5
 
 const DEFAULT_REPO_URL = 'https://github.com/Beqakid/codehive-sanbox'
 const ALLOWED_REPO_URLS = [
@@ -34,6 +36,7 @@ interface CommandBody {
   mode?: unknown
   projectName?: unknown
   targetRepo?: unknown
+  autopilot?: unknown
 }
 
 export async function POST(request: Request) {
@@ -98,6 +101,7 @@ export async function POST(request: Request) {
     typeof body.projectName === 'string' && body.projectName.trim()
       ? body.projectName.trim()
       : `Command: ${prompt.slice(0, 40)}${prompt.length > 40 ? '\u2026' : ''}`
+  const autopilot = body.autopilot === true
 
   // Validate targetRepo — only allow known repos (or fall back to default)
   const targetRepoUrl =
@@ -222,6 +226,7 @@ export async function POST(request: Request) {
       let planId: number | undefined
       let prUrl: string | undefined
       let verdictApproved = false
+      let verdictScore: number | null = null
 
       await runOrchestrator(payload, codingRequestId, (event) => {
         send(event)
@@ -235,6 +240,7 @@ export async function POST(request: Request) {
         }
         if (event.type === 'verdict') {
           verdictApproved = event.approved
+          verdictScore = event.score ?? null
           log(`Verdict: ${event.approved ? 'APPROVED' : 'NEEDS_REVISION'} (score: ${event.score ?? 'N/A'})`)
           if (!event.approved) {
             log(`Verdict reason: ${event.reason}`)
@@ -245,8 +251,28 @@ export async function POST(request: Request) {
         }
       })
 
+      // ── Autopilot gate ───────────────────────────────────────────────────
+      // If autopilot is ON, verdict is approved, and score >= threshold:
+      // escalate plan_only → plan_code automatically (skip manual approval).
+      const autopilotProceed =
+        autopilot &&
+        verdictApproved &&
+        verdictScore !== null &&
+        verdictScore >= AUTOPILOT_SCORE_THRESHOLD
+
+      if (autopilotProceed && mode === 'plan_only') {
+        log(`Autopilot: score ${verdictScore}/10 >= ${AUTOPILOT_SCORE_THRESHOLD} — auto-proceeding to codegen`)
+        send({
+          type: 'autopilot_proceed',
+          message: `🤖 Autopilot: Score ${verdictScore}/10 ≥ ${AUTOPILOT_SCORE_THRESHOLD} — skipping manual approval and proceeding to code generation`,
+          score: verdictScore,
+        })
+      }
+
       // ── Phase B: Code generation (GATED on approval) ──────────────────
-      if (mode === 'plan_code' || mode === 'full_build') {
+      const shouldRunCodegen = mode === 'plan_code' || mode === 'full_build' || autopilotProceed
+
+      if (shouldRunCodegen) {
         if (!planId) throw new Error('No plan ID — cannot generate code without a plan')
 
         if (!verdictApproved) {
@@ -267,7 +293,7 @@ export async function POST(request: Request) {
             if (event.type === 'file_done') log(`Committed: ${(event as { file?: string }).file ?? ''}`)
           })
 
-          // ── Phase C: Sandbox (only if codegen ran) ────────────────────
+          // ── Phase C: Sandbox (only if full_build mode) ────────────────
           if (mode === 'full_build') {
             if (!prUrl) throw new Error('No PR URL — cannot run sandbox without a PR')
             send({ type: 'phase', phase: 'sandbox', message: '\ud83e\uddea Triggering sandbox tests...' })

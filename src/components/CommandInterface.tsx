@@ -93,6 +93,7 @@ export default function CommandInterface() {
   const [editingEnriched, setEditingEnriched] = useState(false)
   const [coachLoading, setCoachLoading] = useState(false)
   const [targetRepo, setTargetRepo] = useState(REPOS[0].value)
+  const [autopilot, setAutopilot] = useState(false)
 
   // Agent output review state
   const [agentOutputs, setAgentOutputs] = useState<Record<string, string>>({})
@@ -210,7 +211,7 @@ export default function CommandInterface() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ prompt: finalPrompt, mode, projectName: projectName.trim() || undefined, targetRepo }),
+        body: JSON.stringify({ prompt: finalPrompt, mode, projectName: projectName.trim() || undefined, targetRepo, autopilot }),
         signal: abort.signal,
       })
 
@@ -270,6 +271,7 @@ export default function CommandInterface() {
               case 'plan_saved': addLog({ type: 'plan_saved', text: `💾 Plan #${event.planId} saved` }); break
               case 'file_done': addLog({ type: 'file_committed', text: `📄 Committed: ${event.file}` }); break
               case 'sandbox_step': addLog({ type: 'sandbox_step', text: `🧪 ${event.step}: ${event.status}` }); break
+              case 'autopilot_proceed': addLog({ type: 'phase', text: `🤖 ${String(event.message ?? '')}` }); break
               case 'codegen_blocked': addLog({ type: 'error', text: '⚠️ Code generation blocked — reviewer requested revisions' }); break
               case 'done':
                 setResult({ planId: event.planId as number | undefined, prUrl: event.prUrl as string | undefined, projectId: currentProjectId })
@@ -630,6 +632,32 @@ export default function CommandInterface() {
               }} />
             </div>
             🎯 Coach
+          </button>
+
+          <button
+            onClick={() => !disabled && setAutopilot(!autopilot)}
+            disabled={disabled}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 16px', borderRadius: 12,
+              background: autopilot ? 'rgba(168,85,247,0.08)' : 'rgba(15,23,42,0.3)',
+              border: `1px solid ${autopilot ? 'rgba(168,85,247,0.3)' : 'rgba(51,65,85,0.35)'}`,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              opacity: disabled ? 0.5 : 1,
+              transition: 'all 0.2s', fontSize: 12, fontWeight: 700,
+              color: autopilot ? '#d8b4fe' : '#64748b',
+            }}
+          >
+            <div style={{ position: 'relative', width: 28, height: 16, borderRadius: 8, background: autopilot ? 'rgba(168,85,247,0.35)' : 'rgba(51,65,85,0.5)', transition: 'background 0.2s' }}>
+              <div style={{
+                position: 'absolute', top: 2, width: 12, height: 12, borderRadius: 6,
+                background: autopilot ? '#a855f7' : '#475569',
+                left: autopilot ? 14 : 2,
+                boxShadow: autopilot ? '0 0 8px rgba(168,85,247,0.5)' : 'none',
+                transition: 'all 0.2s',
+              }} />
+            </div>
+            🤖 Autopilot
           </button>
 
           <button
