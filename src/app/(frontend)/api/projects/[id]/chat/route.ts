@@ -1,241 +1,246 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getPayload } from 'payload'
-import config from '@/payload.config'
-import {
-  runProjectChat,
-  type ProjectContext,
-  type ChatMessage,
-  type ActionDispatcher,
-} from '@/agents/projectChatAgent'
+import config from '@payload-config'
+import { runProjectChat, ProjectContext, MemoryEntry } from '@/agents/projectChatAgent'
 
+export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
 
-function extractMarkdown(field: unknown): string {
-  if (!field) return ''
-  if (typeof field === 'string') return field
-  if (typeof field === 'object' && field !== null && 'markdown' in field) {
-    return String((field as { markdown?: string }).markdown ?? '')
-  }
-  return ''
-}
-
-function parseRepoUrl(repoUrl: string): { owner: string; name: string } {
-  const m = repoUrl.match(/github\.com\/([^/]+)\/([^/\s]+)/)
-  return {
-    owner: m?.[1] || 'Beqakid',
-    name: (m?.[2] || 'codehive-sanbox').replace(/\.git$/, ''),
-  }
-}
-
 export async function POST(
-  request: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
-  const body = (await request.json()) as { messages: ChatMessage[] }
-  const { messages } = body
+  const projectId = parseInt(id, 10)
 
-  const githubToken = process.env.GITHUB_TOKEN || ''
-  const anthropicKey = process.env.ANTHROPIC_API_KEY || ''
+  if (isNaN(projectId)) {
+    return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
+  }
 
-  const { readable, writable } = new TransformStream()
-  const writer = writable.getWriter()
-  const enc = new TextEncoder()
+  let body: { messages?: unknown[] } = {}
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
-  const send = async (obj: object) => {
-    try {
-      await writer.write(enc.encode(`data: ${JSON.stringify(obj)}\n\n`))
-    } catch {
-      // writer may be closed
+  const messages = (body.messages ?? []) as Array<{ role: 'user' | 'assistant'; content: string }>
+
+  const payload = await getPayload({ config })
+
+  // ── Load project ──────────────────────────────────────────────────────────
+  let project: { id: number; name: string; description?: string; githubUrl?: string } | null = null
+  try {
+    const p = await payload.findByID({
+      collection: 'projects',
+      id: projectId,
+      overrideAccess: true,
+    })
+    project = p as typeof project
+  } catch {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
+
+  if (!project) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
+
+  // Parse owner/repo from github URL
+  let repoOwner = 'Beqakid'
+  let repoName = 'codehive-sanbox'
+  if (project.githubUrl) {
+    const match = project.githubUrl.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/)
+    if (match) {
+      repoOwner = match[1]
+      repoName = match[2]
     }
   }
 
-  ;(async () => {
-    try {
-      const payloadConfig = await config
-      const payload = await getPayload({ config: payloadConfig })
+  // ── Load persistent memories ───────────────────────────────────────────────
+  let memories: MemoryEntry[] = []
+  try {
+    const memResult = await payload.find({
+      collection: 'project-memory',
+      where: { project: { equals: projectId } },
+      sort: '-createdAt',
+      limit: 30,
+      overrideAccess: true,
+    })
+    memories = (memResult.docs ?? []).map((m: Record<string, unknown>) => ({
+      id: m.id as number,
+      type: (m.type as string) ?? 'context',
+      summary: (m.summary as string) ?? '',
+      content: (m.content as string) ?? '',
+      importance: (m.importance as string) ?? 'medium',
+      tags: m.tags as string | undefined,
+      source: (m.source as string) ?? 'agent',
+      createdAt: (m.createdAt as string) ?? new Date().toISOString(),
+    }))
+  } catch {
+    // Non-fatal — memories just won't be available
+    memories = []
+  }
 
-      // Load project
-      const projectRes = await payload.find({
-        collection: 'projects',
-        where: { id: { equals: Number(id) } },
-        limit: 1,
-        depth: 0,
+  // ── Load latest plan ───────────────────────────────────────────────────────
+  let latestPlan: ProjectContext['latestPlan'] = undefined
+  try {
+    const plans = await payload.find({
+      collection: 'agent-plans',
+      where: { codingRequest: { exists: true } },
+      sort: '-createdAt',
+      limit: 20,
+      overrideAccess: true,
+    })
+    // Find the plan associated with this project
+    const plan = plans.docs.find((p: Record<string, unknown>) => {
+      const cr = p.codingRequest as { project?: { id?: number } | number } | null
+      if (!cr) return false
+      const projId = typeof cr === 'object' && cr.project
+        ? (typeof cr.project === 'object' ? cr.project.id : cr.project)
+        : null
+      return projId === projectId
+    }) as Record<string, unknown> | undefined
+
+    if (plan) {
+      latestPlan = {
+        id: plan.id as number,
+        status: (plan.status as string) ?? 'draft',
+        reviewScore: plan.reviewScore as number | null,
+        verdictReason: plan.verdictReason as string | null,
+        prBranch: plan.prBranch as string | null,
+        prUrl: plan.prUrl as string | null,
+        productSpec: plan.productSpec as string | undefined,
+        architectureDesign: plan.architectureDesign as string | undefined,
+        uiuxDesign: plan.uiuxDesign as string | undefined,
+        reviewFeedback: plan.reviewFeedback as string | undefined,
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  // ── Load fix attempts ──────────────────────────────────────────────────────
+  let fixAttempts: ProjectContext['fixAttempts'] = []
+  try {
+    if (latestPlan) {
+      const fixes = await payload.find({
+        collection: 'fix-attempts',
+        where: { agentPlan: { equals: latestPlan.id } },
+        sort: '-createdAt',
+        limit: 10,
         overrideAccess: true,
       })
+      fixAttempts = (fixes.docs ?? []).map((f: Record<string, unknown>) => ({
+        id: f.id as number,
+        attemptNumber: (f.attemptNumber as number) ?? 1,
+        status: (f.status as string) ?? 'unknown',
+        errorCategory: f.errorCategory as string | undefined,
+        errorSummary: f.errorSummary as string | undefined,
+        fixSummary: f.fixSummary as string | undefined,
+        confidence: f.confidence as number | undefined,
+        needsHumanReview: (f.needsHumanReview as boolean) ?? false,
+        branchName: f.branchName as string | undefined,
+      }))
+    }
+  } catch {
+    // Non-fatal
+  }
 
-      if (!projectRes.docs.length) {
-        await send({ type: 'error', message: 'Project not found' })
-        await writer.close()
-        return
-      }
+  const ctx: ProjectContext = {
+    projectId,
+    projectName: (project.name as string) ?? 'Unknown Project',
+    projectDescription: project.description as string | undefined,
+    repoOwner,
+    repoName,
+    repoUrl: project.githubUrl as string | undefined,
+    memories,
+    latestPlan,
+    fixAttempts,
+  }
 
-      const project = projectRes.docs[0] as unknown as {
-        id: number
-        name: string
-        description?: string
-        repoUrl?: string
-        status: string
-      }
+  const githubToken = (process.env.GITHUB_TOKEN as string) ?? ''
+  const anthropicKey = (process.env.ANTHROPIC_API_KEY as string) ?? ''
 
-      const repoUrl = project.repoUrl || ''
-      const { owner: repoOwner, name: repoName } = parseRepoUrl(repoUrl)
-
-      // Load latest plan + fix attempts
-      let latestPlan: ProjectContext['latestPlan'] = undefined
-      let fixAttempts: ProjectContext['fixAttempts'] = []
-
-      try {
-        const crRes = await payload.find({
-          collection: 'coding-requests',
-          where: { project: { equals: Number(id) } },
-          limit: 100,
-          depth: 0,
-          overrideAccess: true,
-        })
-        const crIds = crRes.docs.map((d: any) => d.id)
-
-        if (crIds.length > 0) {
-          const plansRes = await payload.find({
-            collection: 'agent-plans',
-            where: { codingRequest: { in: crIds } },
-            limit: 1,
-            sort: '-createdAt',
-            depth: 0,
+  // ── Action dispatcher (write_memory + project actions) ────────────────────
+  const actionDispatcher = async (action: string, params: Record<string, unknown>): Promise<string> => {
+    switch (action) {
+      case 'write_memory': {
+        try {
+          await payload.create({
+            collection: 'project-memory',
+            data: {
+              project: projectId,
+              type: (params.type as string) ?? 'context',
+              summary: (params.summary as string) ?? 'Untitled memory',
+              content: (params.content as string) ?? '',
+              importance: (params.importance as string) ?? 'medium',
+              tags: params.tags as string | undefined,
+              source: 'agent',
+            },
             overrideAccess: true,
           })
-
-          const plan = plansRes.docs[0] as any
-          if (plan) {
-            latestPlan = {
-              id: plan.id,
-              status: plan.status,
-              reviewScore: plan.reviewScore ?? null,
-              verdictReason: plan.verdictReason ?? null,
-              prBranch: plan.finalPlan?.prBranch ?? null,
-              prUrl: plan.finalPlan?.prUrl ?? null,
-              productSpec: extractMarkdown(plan.productSpec),
-              architectureDesign: extractMarkdown(plan.architectureDesign),
-              reviewFeedback: extractMarkdown(plan.reviewFeedback),
-              uiuxDesign: extractMarkdown(plan.uiuxDesign),
-            }
-
-            const faRes = await payload.find({
-              collection: 'fix-attempts',
-              where: { agentPlan: { equals: plan.id } },
-              sort: '-attemptNumber',
-              limit: 10,
-              overrideAccess: true,
-            })
-            fixAttempts = faRes.docs.map((fa: any) => ({
-              id: fa.id,
-              attemptNumber: fa.attemptNumber,
-              status: fa.status,
-              errorCategory: fa.errorCategory,
-              errorSummary: fa.errorSummary,
-              fixSummary: fa.fixSummary,
-              confidence: fa.confidence,
-              needsHumanReview: fa.needsHumanReview,
-              branchName: fa.branchName,
-            }))
-          }
+          return `✅ Memory stored: "${params.summary}"`
+        } catch (e) {
+          return `Error writing memory: ${e instanceof Error ? e.message : String(e)}`
         }
-      } catch {
-        // silently ignore — agent can still respond with partial context
       }
 
-      const ctx: ProjectContext = {
-        projectId: Number(id),
-        projectName: project.name,
-        projectDescription: project.description,
-        repoOwner,
-        repoName,
-        repoUrl,
-        latestPlan,
-        fixAttempts,
+      case 'approve_plan': {
+        if (!latestPlan) return 'No plan found to approve.'
+        try {
+          await payload.update({
+            collection: 'agent-plans',
+            id: latestPlan.id,
+            data: { status: 'approved', verdictApproved: true },
+            overrideAccess: true,
+          })
+          return `✅ Plan #${latestPlan.id} approved. Code generation can now begin.`
+        } catch (e) {
+          return `Error approving plan: ${e instanceof Error ? e.message : String(e)}`
+        }
       }
 
-      // ── Action dispatcher ──────────────────────────────────────────────────
-      const actionDispatcher: ActionDispatcher = async (action, params) => {
-        if (action === 'approve_plan') {
-          const planId = (params.plan_id as number) || latestPlan?.id
-          if (!planId) return 'No plan available to approve.'
-          try {
-            await payload.update({
-              collection: 'agent-plans',
-              id: planId,
-              data: { status: 'approved' },
-              overrideAccess: true,
-            })
-            await send({
-              type: 'action',
-              action: 'plan_approved',
-              planId,
-              label: '✅ Plan approved',
-              detail: `Plan #${planId} is now approved. You can run Codegen below.`,
-            })
-            return `Plan #${planId} approved successfully. Codegen is now unblocked.`
-          } catch (e) {
-            return `Failed to approve plan: ${e instanceof Error ? e.message : String(e)}`
-          }
-        }
+      case 'trigger_fix':
+        return `ACTION:trigger_fix:${latestPlan?.prBranch ?? ''}:${latestPlan?.id ?? ''}`
 
-        if (action === 'trigger_fix') {
-          const planId = latestPlan?.id
-          await send({
-            type: 'action',
-            action: 'trigger_fix',
-            planId,
-            label: '🔧 Fix loop queued',
-            detail: `${params.note || 'The automated fix loop will retry the failing tests.'} Click "Run Fix" below.`,
-          })
-          return 'Fix loop action sent to UI. The user can click "Run Fix" in the Fix Runner section.'
-        }
+      case 'trigger_codegen':
+        return `ACTION:trigger_codegen:${latestPlan?.prBranch ?? ''}:${latestPlan?.id ?? ''}`
 
-        if (action === 'trigger_codegen') {
-          const planId = latestPlan?.id
-          const prUrl = latestPlan?.prUrl
-          await send({
-            type: 'action',
-            action: 'trigger_codegen',
-            planId,
-            prUrl,
-            label: '💻 Codegen queued',
-            detail: `${params.note || 'Code generation will run against the approved plan.'} Click "Run Codegen" below.`,
-          })
-          return 'Codegen action sent to UI. The user can click "Run Codegen" in the AI Runners section.'
-        }
+      case 'trigger_sandbox':
+        return `ACTION:trigger_sandbox:${latestPlan?.prBranch ?? ''}:${latestPlan?.id ?? ''}`
 
-        if (action === 'trigger_sandbox') {
-          const planId = latestPlan?.id
-          await send({
-            type: 'action',
-            action: 'trigger_sandbox',
-            planId,
-            label: '🧪 Sandbox queued',
-            detail: `${params.note || 'The sandbox test runner will execute tests on the current branch.'} Click "Run Sandbox" below.`,
-          })
-          return 'Sandbox action sent to UI. The user can click "Run Sandbox" in the AI Runners section.'
-        }
-
+      default:
         return `Unknown action: ${action}`
-      }
-
-      await runProjectChat(messages, ctx, githubToken, anthropicKey, send, actionDispatcher)
-    } catch (err) {
-      await send({ type: 'error', message: String(err) })
-    } finally {
-      try {
-        await writer.close()
-      } catch {}
     }
-  })()
+  }
+
+  // ── SSE stream ────────────────────────────────────────────────────────────
+  const { readable, writable } = new TransformStream()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+
+  const send = async (obj: object) => {
+    try {
+      await writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`))
+    } catch {
+      // Client disconnected
+    }
+  }
+
+  // Run agent in background
+  runProjectChat(messages, ctx, githubToken, anthropicKey, send, actionDispatcher)
+    .catch(async (e) => {
+      await send({ type: 'error', message: e instanceof Error ? e.message : String(e) })
+    })
+    .finally(async () => {
+      try { await writer.close() } catch { /* already closed */ }
+    })
 
   return new Response(readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      'Connection': 'keep-alive',
     },
   })
 }

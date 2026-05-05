@@ -1,8 +1,19 @@
 /**
  * Project Manager Agent — Tasklet-grade capability embedded in every project.
- * Features: persistent context, direct action triggers, web search, repo inspection, CI analysis.
+ * Features: persistent memory (read+write), direct action triggers, web search, repo inspection, CI analysis.
  * Uses raw fetch to Anthropic API (no SDK). Signature matches the route handler exactly.
  */
+
+export interface MemoryEntry {
+  id: number
+  type: string
+  summary: string
+  content: string
+  importance: string
+  tags?: string
+  source: string
+  createdAt: string
+}
 
 export interface ProjectContext {
   projectId: number
@@ -11,6 +22,7 @@ export interface ProjectContext {
   repoOwner: string
   repoName: string
   repoUrl?: string
+  memories: MemoryEntry[]
   latestPlan?: {
     id: number
     status: string
@@ -51,6 +63,52 @@ type Send = (obj: object) => void | Promise<void>
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
 const TOOLS = [
+  // ── Memory tools ──
+  {
+    name: 'write_memory',
+    description:
+      'Store an important lesson, decision, preference, milestone, or context note to persistent project memory. This survives across ALL future conversations. Use proactively whenever you learn something important — a fix that worked, a technology decision, a user preference, a key constraint.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['lesson', 'decision', 'preference', 'milestone', 'context'],
+          description: 'Type of memory entry',
+        },
+        summary: { type: 'string', description: 'Short title for this memory (max 150 chars)' },
+        content: {
+          type: 'string',
+          description: 'Full detail to remember — be specific and actionable',
+        },
+        importance: {
+          type: 'string',
+          enum: ['critical', 'high', 'medium', 'low'],
+          description: 'How important is this? critical = must never forget',
+        },
+        tags: {
+          type: 'string',
+          description: 'Comma-separated tags for search, e.g. "bcrypt,testing,node20"',
+        },
+      },
+      required: ['type', 'summary', 'content'],
+    },
+  },
+  {
+    name: 'search_memory',
+    description:
+      'Search previously stored memories for this project by keyword or tag. Use before debugging to check if we\'ve seen this error before.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Keyword or tag to search for in memories (e.g. "bcrypt", "test failure")',
+        },
+      },
+      required: ['query'],
+    },
+  },
   // ── Repo tools ──
   {
     name: 'read_repo_file',
@@ -195,11 +253,11 @@ const TOOLS = [
 
 // ─── Tool executors ───────────────────────────────────────────────────────────
 
-async function execReadRepoFile(owner: string, repo: string, path: string, token: string): Promise<string> {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+async function execReadRepoFile(owner: string, repo: string, filePath: string, token: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
   })
-  if (!res.ok) return `Error ${res.status}: file not found at "${path}"`
+  if (!res.ok) return `Error ${res.status}: file not found at "${filePath}"`
   const data = await res.json() as { content?: string; encoding?: string; message?: string }
   if (data.message) return `Error: ${data.message}`
   if (data.encoding === 'base64' && data.content) {
@@ -209,11 +267,11 @@ async function execReadRepoFile(owner: string, repo: string, path: string, token
   return 'Error: unexpected response format'
 }
 
-async function execListRepoFiles(owner: string, repo: string, path: string, token: string): Promise<string> {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
+async function execListRepoFiles(owner: string, repo: string, dirPath: string, token: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${dirPath}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
   })
-  if (!res.ok) return `Error ${res.status}: directory not found at "${path}"`
+  if (!res.ok) return `Error ${res.status}: directory not found at "${dirPath}"`
   const data = await res.json() as Array<{ name: string; type: string; size?: number }>
   if (!Array.isArray(data)) return 'Error: not a directory'
   return data.map(f => `${f.type === 'dir' ? '📁' : '📄'} ${f.name}${f.size ? ` (${f.size}b)` : ''}`).join('\n')
@@ -256,9 +314,7 @@ async function execSearchWeb(query: string): Promise<string> {
       AbstractText?: string
       AbstractURL?: string
       Answer?: string
-      AnswerType?: string
       RelatedTopics?: Array<{ Text?: string; FirstURL?: string; Topics?: Array<{ Text?: string; FirstURL?: string }> }>
-      Results?: Array<{ Text?: string; FirstURL?: string }>
     }
     const parts: string[] = []
     if (data.Answer) parts.push(`**Direct Answer:** ${data.Answer}`)
@@ -292,7 +348,6 @@ async function execFetchUrl(url: string): Promise<string> {
     const ct = res.headers.get('content-type') ?? ''
     if (!ct.includes('text') && !ct.includes('json')) return `Non-text content at ${url} (${ct})`
     const text = await res.text()
-    // Strip HTML tags for readability
     const stripped = text
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -305,6 +360,21 @@ async function execFetchUrl(url: string): Promise<string> {
   }
 }
 
+function execSearchMemory(memories: MemoryEntry[], query: string): string {
+  const q = query.toLowerCase()
+  const matches = memories.filter(m =>
+    m.summary.toLowerCase().includes(q) ||
+    m.content.toLowerCase().includes(q) ||
+    (m.tags ?? '').toLowerCase().includes(q) ||
+    m.type.toLowerCase().includes(q)
+  )
+  if (!matches.length) return `No memories found matching "${query}". No prior knowledge on this topic.`
+  return `Found ${matches.length} memory entries matching "${query}":\n\n` +
+    matches.map(m =>
+      `**[${m.type.toUpperCase()}] ${m.summary}** (${m.importance} importance)\n${m.content}${m.tags ? `\nTags: ${m.tags}` : ''}`
+    ).join('\n\n---\n\n')
+}
+
 // ─── Tool dispatcher ──────────────────────────────────────────────────────────
 
 async function dispatchTool(
@@ -315,6 +385,13 @@ async function dispatchTool(
   actionDispatcher?: ActionDispatcher,
 ): Promise<string> {
   switch (toolName) {
+    case 'write_memory':
+      if (actionDispatcher) {
+        return actionDispatcher('write_memory', toolInput)
+      }
+      return 'Memory write not available in this context.'
+    case 'search_memory':
+      return execSearchMemory(ctx.memories, String(toolInput.query ?? ''))
     case 'read_repo_file':
       return execReadRepoFile(ctx.repoOwner, ctx.repoName, String(toolInput.path ?? ''), token)
     case 'list_repo_files':
@@ -376,9 +453,34 @@ ${ctx.fixAttempts
   .join('\n')}`
       : ''
 
+  // Build memory context — prioritise critical/high entries, then chronological
+  const sortedMemories = [...ctx.memories].sort((a, b) => {
+    const order = { critical: 0, high: 1, medium: 2, low: 3 }
+    const aOrder = order[a.importance as keyof typeof order] ?? 2
+    const bOrder = order[b.importance as keyof typeof order] ?? 2
+    return aOrder - bOrder
+  })
+
+  const memoryContext =
+    sortedMemories.length > 0
+      ? `
+## 🧠 Persistent Memory (${sortedMemories.length} entries — loaded from previous conversations)
+${sortedMemories
+  .slice(0, 20)
+  .map(m => {
+    const icon = { lesson: '💡', decision: '✅', preference: '⚙️', milestone: '🏆', context: '📋' }[m.type] ?? '📋'
+    return `${icon} **[${m.type.toUpperCase()}]** ${m.summary}${m.tags ? ` *(${m.tags})*` : ''}\n   ${m.content.slice(0, 300)}`
+  })
+  .join('\n\n')}
+
+> These memories were written in past conversations. Treat them as ground truth for this project. Always check them before debugging.`
+      : `
+## 🧠 Persistent Memory
+No memories yet. Start storing lessons as you learn them — use write_memory proactively.`
+
   return `You are the **Project Manager Agent** for "${ctx.projectName}" — a Tasklet-grade AI assistant embedded inside CodeHive AI.
 
-You have complete context of this project and live tools to inspect the GitHub repo, CI pipeline, the web, and take direct actions.
+You have complete context of this project, live tools to inspect the GitHub repo, CI pipeline, and the web, and the ability to take direct actions AND store/retrieve persistent memory.
 
 ## Project
 - **Name:** ${ctx.projectName}
@@ -390,21 +492,25 @@ ${ctx.projectDescription ? `- **Description:** ${ctx.projectDescription}` : ''}
 - **Fixes:** ${fixSummary}
 ${planContext}
 ${fixContext}
+${memoryContext}
 
-## Your Tools (10 total)
+## Your Tools (12 total)
+**Memory:** write_memory (persist lessons/decisions), search_memory (query past knowledge)
 **Repo:** read_repo_file, list_repo_files
 **CI:** get_ci_status, get_ci_job_steps
 **Web:** search_web (DuckDuckGo), fetch_url (any URL)
 **Actions:** approve_plan, trigger_fix, trigger_codegen, trigger_sandbox
 
 ## How to behave
+- **Always check memory first** when debugging — search for the error pattern before doing anything else
+- **Write memories proactively** — after every fix attempt, every debugging session, every decision
 - Be direct, specific, and tool-driven — don't guess when you can check
-- **For debugging:** check CI status → drill into failed job steps → read the failing source file → search web for the error if needed
-- **For approvals/triggers:** confirm the user's intent, then use the action tool
+- **For debugging:** search_memory → get_ci_status → get_ci_job_steps → read failing file → search_web if needed
+- **For approvals/triggers:** confirm intent, then use action tool, then write a milestone memory
 - Cite file names, test names, line numbers, error messages when relevant
 - Format with markdown — headers, code blocks, bullet points
-- When asked for a "briefing": check CI status first, read package.json, then summarize plan + CI health + fix history + recommended next action
-- You are compared to Tasklet (the parent AI) — match its quality: thorough, honest, concise`
+- When asked for a "briefing": check memory → check CI → summarize plan + health + recommended next action
+- You are compared to Tasklet (the parent AI) — match its quality: thorough, honest, concise, proactive`
 }
 
 // ─── Main agentic loop ────────────────────────────────────────────────────────
@@ -428,14 +534,13 @@ export async function runProjectChat(
 
   const systemPrompt = buildSystemPrompt(ctx)
 
-  // Build Anthropic messages array from history
   const anthropicMessages: Array<{ role: string; content: unknown }> = messages.map(m => ({
     role: m.role,
     content: m.content,
   }))
 
   let loopCount = 0
-  const MAX_LOOPS = 10
+  const MAX_LOOPS = 12
 
   while (loopCount < MAX_LOOPS) {
     loopCount++
@@ -479,12 +584,11 @@ export async function runProjectChat(
     const textBlocks = content.filter(b => b.type === 'text')
     const toolBlocks = content.filter(b => b.type === 'tool_use')
 
-    // Stream text in chunks
+    // Stream text in chunks for a live feel
     let fullText = ''
     for (const block of textBlocks) {
       if (block.text) {
         fullText += block.text
-        // Emit in chunks for streaming feel
         const chunkSize = 12
         for (let i = 0; i < block.text.length; i += chunkSize) {
           await send({ type: 'chunk', text: block.text.slice(i, i + chunkSize) })
@@ -492,7 +596,7 @@ export async function runProjectChat(
       }
     }
 
-    // If no tool calls or end_turn, we're done
+    // Done if no tool calls
     if (stop_reason === 'end_turn' || toolBlocks.length === 0) {
       await send({ type: 'done', fullText })
       return
@@ -506,7 +610,6 @@ export async function runProjectChat(
       const toolInput = (toolBlock.input ?? {}) as Record<string, unknown>
       const toolUseId = toolBlock.id!
 
-      // Notify UI: tool starting
       await send({ type: 'tool_start', toolId: toolUseId, tool: toolName, input: toolInput })
 
       let result: string
@@ -516,9 +619,21 @@ export async function runProjectChat(
         result = `Tool error: ${e instanceof Error ? e.message : String(e)}`
       }
 
-      // Notify UI: tool result
-      await send({ type: 'tool_result', toolId: toolUseId, tool: toolName, output: result.slice(0, 2000) })
+      // If a memory was written, append it to ctx so subsequent searches find it
+      if (toolName === 'write_memory' && !result.startsWith('Error') && !result.startsWith('Memory write')) {
+        ctx.memories.push({
+          id: Date.now(),
+          type: String(toolInput.type ?? 'context'),
+          summary: String(toolInput.summary ?? ''),
+          content: String(toolInput.content ?? ''),
+          importance: String(toolInput.importance ?? 'medium'),
+          tags: toolInput.tags ? String(toolInput.tags) : undefined,
+          source: 'agent',
+          createdAt: new Date().toISOString(),
+        })
+      }
 
+      await send({ type: 'tool_result', toolId: toolUseId, tool: toolName, output: result.slice(0, 2000) })
       toolResults.push({ type: 'tool_result', tool_use_id: toolUseId, content: result })
     }
 

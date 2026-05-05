@@ -18,6 +18,7 @@ import { ToolConnections } from './collections/ToolConnections'
 import { Commands } from './collections/Commands'
 import { Runs } from './collections/Runs'
 import { FixAttempts } from './collections/FixAttempts'
+import { ProjectMemory } from './collections/ProjectMemory'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -69,6 +70,7 @@ export default buildConfig({
     Commands,
     Runs,
     FixAttempts,
+    ProjectMemory,
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
