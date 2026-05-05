@@ -5,6 +5,17 @@ import { runProjectChat, ProjectContext, MemoryEntry } from '@/agents/projectCha
 
 export const dynamic = 'force-dynamic'
 
+/** Safely extract string from Payload JSON fields stored as { markdown: string } or plain string */
+function extractMarkdown(val: unknown): string | undefined {
+  if (!val) return undefined
+  if (typeof val === 'string') return val
+  if (typeof val === 'object' && val !== null && 'markdown' in val) {
+    const md = (val as Record<string, unknown>).markdown
+    return typeof md === 'string' ? md : undefined
+  }
+  return undefined
+}
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -101,17 +112,20 @@ export async function POST(
     }) as Record<string, unknown> | undefined
 
     if (plan) {
+      const finalPlan = (plan.finalPlan as Record<string, unknown>) ?? {}
       latestPlan = {
         id: plan.id as number,
         status: (plan.status as string) ?? 'draft',
         reviewScore: plan.reviewScore as number | null,
         verdictReason: plan.verdictReason as string | null,
         prBranch: plan.prBranch as string | null,
-        prUrl: plan.prUrl as string | null,
-        productSpec: plan.productSpec as string | undefined,
-        architectureDesign: plan.architectureDesign as string | undefined,
-        uiuxDesign: plan.uiuxDesign as string | undefined,
-        reviewFeedback: plan.reviewFeedback as string | undefined,
+        prUrl: (finalPlan.prUrl as string | null) ?? null,
+        // These are stored as { markdown: string } JSON objects in Payload — extract the string
+        productSpec: extractMarkdown(plan.productSpec),
+        architectureDesign: extractMarkdown(plan.architectureDesign),
+        // uiuxDesign lives inside finalPlan JSON object
+        uiuxDesign: extractMarkdown(finalPlan.uiuxDesign),
+        reviewFeedback: extractMarkdown(plan.reviewFeedback),
       }
     }
   } catch {
