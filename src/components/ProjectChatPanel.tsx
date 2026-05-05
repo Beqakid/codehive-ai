@@ -9,6 +9,9 @@
  * 3. WEB SEARCH — agent can search DuckDuckGo and fetch any URL
  *
  * Plus: tool call cards, context-aware suggestions, streaming, health briefings.
+ *
+ * mode="terminal" — fills its parent container (used inside HiveTerminal)
+ * mode="panel"    — default; standalone card with fixed max-height scroll
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react'
@@ -50,6 +53,8 @@ interface ProjectChatPanelProps {
   fixAttemptCount: number
   hasFailedFixes: boolean
   onAction?: (action: string, params: Record<string, unknown>) => void
+  /** "terminal" = fills parent height; "panel" = standalone card (default) */
+  mode?: 'terminal' | 'panel'
 }
 
 // ─── Tool display helpers ─────────────────────────────────────────────────────
@@ -174,8 +179,10 @@ export function ProjectChatPanel({
   fixAttemptCount,
   hasFailedFixes,
   onAction,
+  mode = 'panel',
 }: ProjectChatPanelProps) {
   const STORAGE_KEY = `codehive-chat-${projectId}`
+  const isTerminal = mode === 'terminal'
 
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -194,7 +201,6 @@ export function ProjectChatPanel({
       if (saved) {
         const parsed = JSON.parse(saved) as Message[]
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Reset streaming flags in case of crash
           setMessages(parsed.map(m => ({ ...m, streaming: false })))
         }
       }
@@ -252,7 +258,6 @@ export function ProjectChatPanel({
 
     abortRef.current = new AbortController()
 
-    // Build history: all previous messages + the new user message
     const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
 
     try {
@@ -315,7 +320,6 @@ export function ProjectChatPanel({
                 return u
               })
             } else if (ev.type === 'action') {
-              // Action card — agent triggered an action (approve, fix, codegen, sandbox)
               const card: ActionCard = {
                 action: ev.action,
                 label: ev.label,
@@ -330,7 +334,6 @@ export function ProjectChatPanel({
                 u[u.length - 1] = last
                 return u
               })
-              // Notify parent page so it can scroll to / activate the runner
               if (onAction) onAction(ev.action, { planId: ev.planId, prUrl: ev.prUrl })
             } else if (ev.type === 'done') {
               setMessages(prev => {
@@ -364,17 +367,42 @@ export function ProjectChatPanel({
   }, [input, messages, streaming, projectId, onAction])
 
   // ─────────────────────────────────────────────────────────────────────────
-  // RENDER
+  // RENDER — terminal mode: full-height flex column, no card wrapper
   // ─────────────────────────────────────────────────────────────────────────
 
-  return (
-    <div style={{ background: 'rgba(13,21,38,0.85)', backdropFilter: 'blur(14px)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 16, overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,0.45), 0 0 0 1px rgba(99,102,241,0.1)' }}>
+  const outerStyle: React.CSSProperties = isTerminal
+    ? {
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'rgba(5,9,18,0.97)',
+        overflow: 'hidden',
+      }
+    : {
+        background: 'rgba(13,21,38,0.85)',
+        backdropFilter: 'blur(14px)',
+        border: '1px solid rgba(99,102,241,0.3)',
+        borderRadius: 16,
+        overflow: 'hidden',
+        boxShadow: '0 8px 40px rgba(0,0,0,0.45), 0 0 0 1px rgba(99,102,241,0.1)',
+      }
 
-      {/* Rainbow accent line */}
-      <div style={{ height: 2, background: 'linear-gradient(to right, #6366f1, #8b5cf6, #3b82f6, #06b6d4)' }} />
+  return (
+    <div style={outerStyle}>
+
+      {/* Rainbow accent line — only in panel mode */}
+      {!isTerminal && (
+        <div style={{ height: 2, background: 'linear-gradient(to right, #6366f1, #8b5cf6, #3b82f6, #06b6d4)', flexShrink: 0 }} />
+      )}
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{ padding: '1rem 1.4rem', borderBottom: '1px solid rgba(30,58,95,0.5)', background: 'rgba(7,13,26,0.5)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+      <div style={{
+        padding: isTerminal ? '10px 16px' : '1rem 1.4rem',
+        borderBottom: '1px solid rgba(30,58,95,0.5)',
+        background: isTerminal ? 'rgba(5,9,18,0.95)' : 'rgba(7,13,26,0.5)',
+        display: 'flex', alignItems: 'center', gap: '0.75rem',
+        flexShrink: 0,
+      }}>
         {/* Avatar */}
         <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.25))', border: '1px solid rgba(99,102,241,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
           🧠
@@ -386,7 +414,6 @@ export function ProjectChatPanel({
             <span style={{ fontSize: '0.58rem', padding: '2px 7px', borderRadius: 9999, background: 'rgba(99,102,241,0.15)', color: '#818cf8', fontWeight: 700, border: '1px solid rgba(99,102,241,0.3)', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }}>
               claude sonnet
             </span>
-            {/* Memory indicator */}
             {mounted && messages.length > 0 && (
               <span style={{ fontSize: '0.58rem', padding: '2px 7px', borderRadius: 9999, background: 'rgba(16,185,129,0.1)', color: '#34d399', fontWeight: 700, border: '1px solid rgba(16,185,129,0.2)', letterSpacing: '0.04em' }}>
                 💾 {messages.filter(m => !m.streaming).length} saved
@@ -421,13 +448,12 @@ export function ProjectChatPanel({
 
       {/* ── Welcome / suggestions (shown when no messages) ──────────────────── */}
       {messages.length === 0 && (
-        <div style={{ padding: '1.25rem 1.4rem', borderBottom: '1px solid rgba(30,58,95,0.35)', background: 'rgba(7,13,26,0.3)' }}>
+        <div style={{ padding: '1.25rem 1.4rem', borderBottom: '1px solid rgba(30,58,95,0.35)', background: 'rgba(7,13,26,0.3)', flexShrink: 0 }}>
           <div style={{ fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.65, marginBottom: '0.85rem' }}>
             I have full context on <strong style={{ color: '#c7d2fe' }}>{projectName}</strong> — plans, architecture, CI history, fix attempts.
             I can read your repo, check CI live, search the web, and take actions like approving plans or triggering runs.
           </div>
 
-          {/* Suggestions */}
           <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: '0.4rem' }}>
             {suggestions.map(s => (
               <button key={s} onClick={() => send(s)} style={{ padding: '0.35rem 0.85rem', fontSize: '0.73rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 20, color: '#818cf8', cursor: 'pointer', fontWeight: 600 }}>
@@ -436,7 +462,6 @@ export function ProjectChatPanel({
             ))}
           </div>
 
-          {/* State pills */}
           <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: '0.4rem', marginTop: '0.75rem' }}>
             {planStatus && (
               <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 9999, background: planStatus === 'approved' ? 'rgba(16,185,129,0.1)' : planStatus === 'needs_revision' ? 'rgba(249,115,22,0.1)' : 'rgba(30,58,95,0.4)', color: planStatus === 'approved' ? '#34d399' : planStatus === 'needs_revision' ? '#fb923c' : '#64748b', border: `1px solid ${planStatus === 'approved' ? '#10b98130' : planStatus === 'needs_revision' ? '#f9731630' : '#1e3a5f80'}`, fontWeight: 600 }}>
@@ -450,7 +475,7 @@ export function ProjectChatPanel({
             )}
             {fixAttemptCount > 0 && (
               <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 9999, background: hasFailedFixes ? 'rgba(239,68,68,0.1)' : 'rgba(30,58,95,0.4)', color: hasFailedFixes ? '#f87171' : '#64748b', border: `1px solid ${hasFailedFixes ? '#ef444430' : '#1e3a5f80'}`, fontWeight: 600 }}>
-                {fixAttemptCount} fix{fixAttemptCount !== 1 ? 's' : ''}{hasFailedFixes ? ' ⚠️' : ''}
+                {fixAttemptCount} fix{fixAttemptCount !== 1 ? 'es' : ''}{hasFailedFixes ? ' ⚠️' : ''}
               </span>
             )}
             {prUrl && (
@@ -463,7 +488,17 @@ export function ProjectChatPanel({
       )}
 
       {/* ── Messages ────────────────────────────────────────────────────────── */}
-      <div style={{ maxHeight: 540, overflowY: 'auto', padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+      <div style={{
+        // Terminal: flex-grow + scroll; Panel: fixed max-height
+        ...(isTerminal
+          ? { flex: 1, overflowY: 'auto' as const }
+          : { maxHeight: 540, overflowY: 'auto' as const }
+        ),
+        padding: '1rem 1.1rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.85rem',
+      }}>
         {messages.map((msg, msgIdx) => (
           <div key={msgIdx}>
             {/* Tool call cards */}
@@ -507,7 +542,7 @@ export function ProjectChatPanel({
               </div>
             )}
 
-            {/* Action card — shown when agent triggers an action */}
+            {/* Action card */}
             {msg.role === 'assistant' && msg.actionCard && (
               <div style={{ marginBottom: '0.5rem', padding: '0.75rem 1rem', background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 10, display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                 <div style={{ fontSize: '1.2rem', flexShrink: 0 }}>
@@ -525,7 +560,7 @@ export function ProjectChatPanel({
                   </div>
                   {msg.actionCard.action !== 'plan_approved' && (
                     <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#475569' }}>
-                      ↓ Scroll to the <strong style={{ color: '#94a3b8' }}>AI Runners</strong> section below to execute
+                      ↓ Expand a Runner in the control panel to execute
                     </div>
                   )}
                 </div>
@@ -574,12 +609,12 @@ export function ProjectChatPanel({
       </div>
 
       {/* ── Input ────────────────────────────────────────────────────────────── */}
-      <div style={{ padding: '0.85rem 1.1rem', borderTop: '1px solid rgba(30,58,95,0.5)', background: 'rgba(7,13,26,0.4)', display: 'flex', gap: '0.6rem', alignItems: 'flex-end' }}>
+      <div style={{ padding: '0.85rem 1.1rem', borderTop: '1px solid rgba(30,58,95,0.5)', background: 'rgba(7,13,26,0.4)', display: 'flex', gap: '0.6rem', alignItems: 'flex-end', flexShrink: 0 }}>
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-          placeholder="Ask about the project, failures, architecture, approve plans, trigger runs… (Enter to send)"
+          placeholder="Ask about the project, CI failures, architecture, approve plans, trigger runs… (Enter to send)"
           rows={2}
           disabled={streaming}
           style={{ flex: 1, padding: '0.55rem 0.85rem', background: 'rgba(7,13,26,0.8)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10, color: '#e2e8f0', fontSize: '0.8rem', outline: 'none', resize: 'none', lineHeight: 1.5, fontFamily: 'inherit', transition: 'border-color 0.2s' }}
@@ -606,7 +641,7 @@ export function ProjectChatPanel({
       </div>
 
       {/* Footer hint */}
-      <div style={{ padding: '0.3rem 1.1rem 0.5rem', background: 'rgba(7,13,26,0.4)', borderTop: '1px solid rgba(30,58,95,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ padding: '0.3rem 1.1rem 0.5rem', background: 'rgba(7,13,26,0.4)', borderTop: '1px solid rgba(30,58,95,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <span style={{ fontSize: '0.62rem', color: '#334155' }}>
           Enter to send · Shift+Enter for new line
         </span>
