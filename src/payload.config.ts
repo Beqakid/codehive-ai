@@ -19,6 +19,7 @@ import { Commands } from './collections/Commands'
 import { Runs } from './collections/Runs'
 import { FixAttempts } from './collections/FixAttempts'
 import { ProjectMemory } from './collections/ProjectMemory'
+import { LessonsLearned } from './collections/LessonsLearned'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -71,6 +72,7 @@ export default buildConfig({
     Runs,
     FixAttempts,
     ProjectMemory,
+    LessonsLearned,
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
