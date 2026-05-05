@@ -67,7 +67,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const status = '${{ job.status }}';
+            const status = '\${{ job.status }}';
             const emoji = status === 'success' ? '✅' : '❌';
             const runUrl = \`\${context.serverUrl}/\${context.repo.owner}/\${context.repo.repo}/actions/runs/\${context.runId}\`;
             await github.rest.issues.createComment({
