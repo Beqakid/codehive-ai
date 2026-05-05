@@ -1,9 +1,13 @@
 /**
  * @module orchestrator
  * @description Main AI agent pipeline orchestrator. Coordinates Product, Architect,
- * UI/UX, and Reviewer agents in sequence with live SSE streaming. Fetches GitHub repo
- * context, saves AgentRuns/AgentPlan to Payload, and creates GitHub branches and PRs.
- * Exports: runOrchestrator, parseReviewVerdict, SSEEvent.
+ * UI/UX, and Reviewer agents with live SSE streaming.
+ *
+ * Step 3 — Parallel Agents:
+ *   Wave 1 (parallel): Product + Architect run simultaneously from raw request
+ *   Wave 2 (parallel): UI/UX + Reviewer run simultaneously from Wave 1 outputs
+ *
+ * Fetches GitHub repo context, saves AgentRuns/AgentPlan to Payload, creates GitHub PRs.
  * @note All Payload operations use overrideAccess: true (system-level).
  */
 
@@ -234,28 +238,44 @@ export async function runOrchestrator(
     }
   }
 
-  // 3. Product Agent
-  onEvent({
-    type: 'agent_start',
-    agent: 'product',
-    message: '📋 Product Agent analyzing requirements...',
-  })
-  const productStart = Date.now()
+  // ─────────────────────────────────────────────────────────────────────────
+  // ⚡ WAVE 1 (PARALLEL): Product Agent + Architect Agent simultaneously
+  // Architect runs from raw title+description (productSpec not yet available).
+  // Both stream chunks concurrently — the UI interleaves them by agent name.
+  // ─────────────────────────────────────────────────────────────────────────
+  onEvent({ type: 'start', message: '⚡ Wave 1: Product + Architect running in parallel...' })
 
-  const productRun = await payload.create({
-    collection: 'agent-runs',
-    overrideAccess: true,
-    data: {
-      agentName: 'product',
-      codingRequest: codingRequestId,
-      status: 'running',
-      input: { title: codingRequest.title, description: codingRequest.description },
-    },
-  })
+  // Create both agent-run records first
+  const [productRunRecord, architectRunRecord] = await Promise.all([
+    payload.create({
+      collection: 'agent-runs',
+      overrideAccess: true,
+      data: {
+        agentName: 'product',
+        codingRequest: codingRequestId,
+        status: 'running',
+        input: { title: codingRequest.title, description: codingRequest.description },
+      },
+    }),
+    payload.create({
+      collection: 'agent-runs',
+      overrideAccess: true,
+      data: {
+        agentName: 'architect',
+        codingRequest: codingRequestId,
+        status: 'running',
+        input: { title: codingRequest.title, description: codingRequest.description },
+      },
+    }),
+  ])
 
-  let productSpec = ''
-  try {
-    productSpec = await runProductAgent(
+  onEvent({ type: 'agent_start', agent: 'product', message: '📋 Product Agent analyzing requirements...' })
+  onEvent({ type: 'agent_start', agent: 'architect', message: '🏗️ Architect Agent designing system (parallel, extended thinking)...' })
+
+  const wave1Start = Date.now()
+
+  const [productResult, architectResult] = await Promise.allSettled([
+    runProductAgent(
       {
         title: codingRequest.title,
         description: codingRequest.description,
@@ -263,107 +283,110 @@ export async function runOrchestrator(
         repoContext,
       },
       (text) => onEvent({ type: 'chunk', agent: 'product', text }),
-    )
+    ),
+    runArchitectAgent(
+      {
+        title: codingRequest.title,
+        description: codingRequest.description,
+        // Architect runs in parallel — uses raw description as base context.
+        // UI/UX and Reviewer will get the final merged productSpec from Wave 1.
+        productSpec: codingRequest.description,
+        repoContext,
+      },
+      (text) => onEvent({ type: 'chunk', agent: 'architect', text }),
+    ),
+  ])
+
+  // Resolve product spec
+  let productSpec = ''
+  if (productResult.status === 'fulfilled') {
+    productSpec = productResult.value
     await payload.update({
       collection: 'agent-runs',
-      id: productRun.id,
+      id: productRunRecord.id,
       overrideAccess: true,
       data: {
         status: 'completed',
         output: { markdown: productSpec },
-        durationMs: Date.now() - productStart,
+        durationMs: Date.now() - wave1Start,
       },
     })
-  } catch (err) {
+    onEvent({ type: 'agent_done', agent: 'product' })
+    onEvent({ type: 'agent_output', agent: 'product', content: productSpec })
+  } else {
     await payload.update({
       collection: 'agent-runs',
-      id: productRun.id,
+      id: productRunRecord.id,
       overrideAccess: true,
-      data: { status: 'failed', errorMessage: String(err), durationMs: Date.now() - productStart },
+      data: { status: 'failed', errorMessage: String(productResult.reason), durationMs: Date.now() - wave1Start },
     })
-    throw new Error(`Product Agent failed: ${String(err)}`)
+    throw new Error(`Product Agent failed: ${String(productResult.reason)}`)
   }
-  onEvent({ type: 'agent_done', agent: 'product' })
-  onEvent({ type: 'agent_output', agent: 'product', content: productSpec })
 
-  // 4. Architect Agent (Claude Sonnet + extended thinking)
-  onEvent({
-    type: 'agent_start',
-    agent: 'architect',
-    message: '🏗️ Architect Agent designing system (extended thinking enabled)...',
-  })
-  const architectStart = Date.now()
-
-  const architectRun = await payload.create({
-    collection: 'agent-runs',
-    overrideAccess: true,
-    data: {
-      agentName: 'architect',
-      codingRequest: codingRequestId,
-      status: 'running',
-      input: { title: codingRequest.title, productSpec },
-    },
-  })
-
+  // Resolve architecture design
   let architectureDesign = ''
-  try {
-    architectureDesign = await runArchitectAgent(
-      {
-        title: codingRequest.title,
-        description: codingRequest.description,
-        productSpec,
-        repoContext,
-      },
-      (text) => onEvent({ type: 'chunk', agent: 'architect', text }),
-    )
+  if (architectResult.status === 'fulfilled') {
+    architectureDesign = architectResult.value
     await payload.update({
       collection: 'agent-runs',
-      id: architectRun.id,
+      id: architectRunRecord.id,
       overrideAccess: true,
       data: {
         status: 'completed',
         output: { markdown: architectureDesign },
-        durationMs: Date.now() - architectStart,
+        durationMs: Date.now() - wave1Start,
       },
     })
-  } catch (err) {
+    onEvent({ type: 'agent_done', agent: 'architect' })
+    onEvent({ type: 'agent_output', agent: 'architect', content: architectureDesign })
+  } else {
     await payload.update({
       collection: 'agent-runs',
-      id: architectRun.id,
+      id: architectRunRecord.id,
+      overrideAccess: true,
+      data: { status: 'failed', errorMessage: String(architectResult.reason), durationMs: Date.now() - wave1Start },
+    })
+    throw new Error(`Architect Agent failed: ${String(architectResult.reason)}`)
+  }
+
+  onEvent({ type: 'start', message: `✅ Wave 1 complete in ${((Date.now() - wave1Start) / 1000).toFixed(1)}s` })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ⚡ WAVE 2 (PARALLEL): UI/UX Designer + Reviewer simultaneously
+  // Both receive the full Wave 1 outputs (productSpec + architectureDesign).
+  // ─────────────────────────────────────────────────────────────────────────
+  onEvent({ type: 'start', message: '⚡ Wave 2: UI/UX + Reviewer running in parallel...' })
+
+  const [uiuxRunRecord, reviewerRunRecord] = await Promise.all([
+    payload.create({
+      collection: 'agent-runs',
       overrideAccess: true,
       data: {
-        status: 'failed',
-        errorMessage: String(err),
-        durationMs: Date.now() - architectStart,
+        agentName: 'uiux',
+        codingRequest: codingRequestId,
+        status: 'running',
+        input: { title: codingRequest.title, productSpec, architectureDesign },
       },
-    })
-    throw new Error(`Architect Agent failed: ${String(err)}`)
-  }
-  onEvent({ type: 'agent_done', agent: 'architect' })
-  onEvent({ type: 'agent_output', agent: 'architect', content: architectureDesign })
+    }),
+    payload.create({
+      collection: 'agent-runs',
+      overrideAccess: true,
+      data: {
+        agentName: 'reviewer',
+        codingRequest: codingRequestId,
+        status: 'running',
+        input: { title: codingRequest.title, productSpec, architectureDesign },
+      },
+    }),
+  ])
 
-  // 5. UI/UX Design Agent (Claude Sonnet 4.6)
-  onEvent({
-    type: 'agent_start',
-    agent: 'uiux',
-    message: '🎨 UI/UX Designer crafting interface blueprint...',
-  })
-  const uiuxStart = Date.now()
+  onEvent({ type: 'agent_start', agent: 'uiux', message: '🎨 UI/UX Designer crafting interface blueprint...' })
+  onEvent({ type: 'agent_start', agent: 'reviewer', message: '🔎 Reviewer Agent critiquing plan...' })
 
-  const uiuxRun = await payload.create({
-    collection: 'agent-runs',
-    overrideAccess: true,
-    data: {
-      agentName: 'uiux',
-      codingRequest: codingRequestId,
-      status: 'running',
-      input: { title: codingRequest.title, productSpec, architectureDesign },
-    },
-  })
+  const wave2Start = Date.now()
 
-  let uiuxDesign = ''
-  try {
-    uiuxDesign = await runUIUXAgent(
+  const [uiuxResult, reviewerResult] = await Promise.allSettled([
+    runUIUXAgent(
       {
         title: codingRequest.title,
         description: codingRequest.description,
@@ -371,83 +394,66 @@ export async function runOrchestrator(
         architectureDesign,
       },
       (text) => onEvent({ type: 'chunk', agent: 'uiux', text }),
-    )
+    ),
+    runReviewerAgent(
+      { title: codingRequest.title, productSpec, architectureDesign },
+      (text) => onEvent({ type: 'chunk', agent: 'reviewer', text }),
+    ),
+  ])
+
+  // Resolve UI/UX design
+  let uiuxDesign = ''
+  if (uiuxResult.status === 'fulfilled') {
+    uiuxDesign = uiuxResult.value
     await payload.update({
       collection: 'agent-runs',
-      id: uiuxRun.id,
+      id: uiuxRunRecord.id,
       overrideAccess: true,
       data: {
         status: 'completed',
         output: { markdown: uiuxDesign },
-        durationMs: Date.now() - uiuxStart,
+        durationMs: Date.now() - wave2Start,
       },
     })
-  } catch (err) {
+    onEvent({ type: 'agent_done', agent: 'uiux' })
+    onEvent({ type: 'agent_output', agent: 'uiux', content: uiuxDesign })
+  } else {
     await payload.update({
       collection: 'agent-runs',
-      id: uiuxRun.id,
+      id: uiuxRunRecord.id,
       overrideAccess: true,
-      data: {
-        status: 'failed',
-        errorMessage: String(err),
-        durationMs: Date.now() - uiuxStart,
-      },
+      data: { status: 'failed', errorMessage: String(uiuxResult.reason), durationMs: Date.now() - wave2Start },
     })
-    throw new Error(`UI/UX Agent failed: ${String(err)}`)
+    throw new Error(`UI/UX Agent failed: ${String(uiuxResult.reason)}`)
   }
-  onEvent({ type: 'agent_done', agent: 'uiux' })
-  onEvent({ type: 'agent_output', agent: 'uiux', content: uiuxDesign })
 
-  // 6. Reviewer Agent (Claude Sonnet)
-  onEvent({
-    type: 'agent_start',
-    agent: 'reviewer',
-    message: '🔎 Reviewer Agent critiquing plan...',
-  })
-  const reviewerStart = Date.now()
-
-  const reviewerRun = await payload.create({
-    collection: 'agent-runs',
-    overrideAccess: true,
-    data: {
-      agentName: 'reviewer',
-      codingRequest: codingRequestId,
-      status: 'running',
-      input: { title: codingRequest.title, productSpec, architectureDesign },
-    },
-  })
-
+  // Resolve review feedback
   let reviewFeedback = ''
-  try {
-    reviewFeedback = await runReviewerAgent(
-      { title: codingRequest.title, productSpec, architectureDesign },
-      (text) => onEvent({ type: 'chunk', agent: 'reviewer', text }),
-    )
+  if (reviewerResult.status === 'fulfilled') {
+    reviewFeedback = reviewerResult.value
     await payload.update({
       collection: 'agent-runs',
-      id: reviewerRun.id,
+      id: reviewerRunRecord.id,
       overrideAccess: true,
       data: {
         status: 'completed',
         output: { markdown: reviewFeedback },
-        durationMs: Date.now() - reviewerStart,
+        durationMs: Date.now() - wave2Start,
       },
     })
-  } catch (err) {
+    onEvent({ type: 'agent_done', agent: 'reviewer' })
+    onEvent({ type: 'agent_output', agent: 'reviewer', content: reviewFeedback })
+  } else {
     await payload.update({
       collection: 'agent-runs',
-      id: reviewerRun.id,
+      id: reviewerRunRecord.id,
       overrideAccess: true,
-      data: {
-        status: 'failed',
-        errorMessage: String(err),
-        durationMs: Date.now() - reviewerStart,
-      },
+      data: { status: 'failed', errorMessage: String(reviewerResult.reason), durationMs: Date.now() - wave2Start },
     })
-    throw new Error(`Reviewer Agent failed: ${String(err)}`)
+    throw new Error(`Reviewer Agent failed: ${String(reviewerResult.reason)}`)
   }
-  onEvent({ type: 'agent_done', agent: 'reviewer' })
-  onEvent({ type: 'agent_output', agent: 'reviewer', content: reviewFeedback })
+
+  onEvent({ type: 'start', message: `✅ Wave 2 complete in ${((Date.now() - wave2Start) / 1000).toFixed(1)}s` })
 
   // 7. Parse review verdict
   onEvent({ type: 'start', message: '🧠 Evaluating review verdict...' })

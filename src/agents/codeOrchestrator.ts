@@ -1,6 +1,6 @@
 /**
  * @module codeOrchestrator
- * @description Phase 3+4 code generation orchestrator. Given an approved AgentPlan,
+ * @description Phase 3+4 code generation orchestrator (Step 3: parallel batch generation). Given an approved AgentPlan,
  * parses the plan markdown to extract files, generates each via codegenAgent with streaming,
  * and commits them to the PR branch. Also bootstraps sandbox files (package.json, tsconfig, tests).
  * If the plan has no associated PR URL (e.g. PR creation failed during orchestration),
@@ -355,42 +355,60 @@ export async function runCodeOrchestrator(
 
   onEvent({ type: 'start', message: `📋 ${filesToGenerate.length} file(s) to generate` })
 
-  // 8. Generate each file and commit to branch
+  // 8. Generate files in parallel batches (Step 3 — Parallel Agents)
+  // Files are generated PARALLEL_BATCH_SIZE at a time to speed up codegen
+  // while staying within API rate limits. GitHub writes are independent.
+  const PARALLEL_BATCH_SIZE = 3
   let committed = 0
+  const totalFiles = filesToGenerate.length
 
-  for (let i = 0; i < filesToGenerate.length; i++) {
-    const file = filesToGenerate[i]
-    onEvent({ type: 'file_start', file: file.path, index: i + 1, total: filesToGenerate.length })
+  for (let batchStart = 0; batchStart < totalFiles; batchStart += PARALLEL_BATCH_SIZE) {
+    const batch = filesToGenerate.slice(batchStart, batchStart + PARALLEL_BATCH_SIZE)
+    const batchNum = Math.floor(batchStart / PARALLEL_BATCH_SIZE) + 1
+    const totalBatches = Math.ceil(totalFiles / PARALLEL_BATCH_SIZE)
 
-    try {
-      let code = await runCodegenAgent(
-        {
-          planMarkdown,
-          filePath: file.path,
-          fileDescription: file.description,
-        },
-        (text) => onEvent({ type: 'chunk', file: file.path, text }),
-      )
+    onEvent({
+      type: 'start',
+      message: `⚡ Batch ${batchNum}/${totalBatches}: generating ${batch.length} file(s) in parallel...`,
+    })
 
-      // Strip markdown fences if GPT added them anyway
-      code = stripCodeFences(code)
+    batch.forEach((file, idx) => {
+      onEvent({ type: 'file_start', file: file.path, index: batchStart + idx + 1, total: totalFiles })
+    })
 
-      await createOrUpdateFile(
-        parsedRepo.owner,
-        parsedRepo.repo,
-        file.path,
-        code,
-        branchName,
-        `feat(codegen): implement ${file.path}`,
-      )
+    const batchResults = await Promise.allSettled(
+      batch.map(async (file) => {
+        let code = await runCodegenAgent(
+          {
+            planMarkdown,
+            filePath: file.path,
+            fileDescription: file.description,
+          },
+          (text) => onEvent({ type: 'chunk', file: file.path, text }),
+        )
+        code = stripCodeFences(code)
+        await createOrUpdateFile(
+          parsedRepo.owner,
+          parsedRepo.repo,
+          file.path,
+          code,
+          branchName,
+          `feat(codegen): implement ${file.path}`,
+        )
+        return file.path
+      }),
+    )
 
-      committed++
-      onEvent({ type: 'file_done', file: file.path, committed: true })
-    } catch (err) {
-      onEvent({ type: 'file_done', file: file.path, committed: false })
-      onEvent({ type: 'error', message: `⚠️ ${file.path}: ${String(err)}` })
-      // Continue with remaining files even if one fails
-    }
+    batchResults.forEach((result, idx) => {
+      const file = batch[idx]
+      if (result.status === 'fulfilled') {
+        committed++
+        onEvent({ type: 'file_done', file: file.path, committed: true })
+      } else {
+        onEvent({ type: 'file_done', file: file.path, committed: false })
+        onEvent({ type: 'error', message: `⚠️ ${file.path}: ${String(result.reason)}` })
+      }
+    })
   }
 
   // 9. Phase 4 — Commit sandbox bootstrap files (package.json, tsconfig, test file)
