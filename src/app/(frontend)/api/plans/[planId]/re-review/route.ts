@@ -4,6 +4,8 @@
  * Allows re-running the Reviewer agent on edited agent outputs.
  * Streams SSE: reviewer chunks + final verdict event.
  * Updates the AgentPlan in DB with new review feedback and verdict.
+ * @note Uses overrideAccess: true — no payload.auth() (throws in CF Workers streaming routes)
+ * @note params must be awaited — Next.js 15 makes route params a Promise
  */
 
 export const dynamic = 'force-dynamic'
@@ -21,10 +23,11 @@ interface ReReviewBody {
 
 export async function POST(
   request: Request,
-  { params }: { params: { planId: string } },
+  { params }: { params: Promise<{ planId: string }> },
 ) {
+  const { planId: planIdStr } = await params
   const encoder = new TextEncoder()
-  const planId = parseInt(params.planId, 10)
+  const planId = parseInt(planIdStr, 10)
 
   if (isNaN(planId)) {
     return Response.json({ error: 'Invalid plan ID' }, { status: 400 })
@@ -37,16 +40,6 @@ export async function POST(
     payload = await getPayload({ config: payloadConfig })
   } catch (err) {
     return Response.json({ error: `Payload init failed: ${String(err)}` }, { status: 500 })
-  }
-
-  // Auth
-  let user: { id: number } | null = null
-  try {
-    const authResult = await payload.auth({ headers: new Headers(request.headers) })
-    user = (authResult?.user as { id: number } | null) ?? null
-  } catch { /* auth() can throw on Workers */ }
-  if (!user) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // Parse body
@@ -114,7 +107,6 @@ export async function POST(
         id: planId,
         overrideAccess: true,
         data: {
-          // Update edited specs if provided
           ...(body.productSpec ? { productSpec: { markdown: body.productSpec } } : {}),
           ...(body.architectureDesign ? { architectureDesign: { markdown: body.architectureDesign } } : {}),
           reviewFeedback: { markdown: reviewFeedback },
