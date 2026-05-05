@@ -8,6 +8,7 @@ import { CodeGenRunner } from '@/components/CodeGenRunner'
 import { SandboxRunner } from '@/components/SandboxRunner'
 import { FixRunner } from '@/components/FixRunner'
 import { ChatFixPanel } from '@/components/ChatFixPanel'
+import { ProjectChatPanel } from '@/components/ProjectChatPanel'
 import HiveBackground from '@/components/HiveBackground'
 import '../../styles.css'
 
@@ -310,7 +311,24 @@ export default async function ProjectDetailPage({
             gap: '2rem',
           }}
         >
-          {/* AI Runners */}
+
+          {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              PROJECT MANAGER AGENT — always visible
+              ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+          <ProjectChatPanel
+            projectId={project.id}
+            projectName={project.name}
+            planId={latestPlan?.id ?? null}
+            planStatus={latestPlan?.status ?? null}
+            reviewScore={latestPlan?.reviewScore ?? null}
+            prUrl={latestPrUrl ?? null}
+            fixAttemptCount={fixAttemptCount}
+            hasFailedFixes={showFixChat}
+          />
+
+          {/* ━━━━━━━━━━━━━━━━━
+              AI RUNNERS
+              ━━━━━━━━━━━━━━━━━ */}
           {latestPlan && (
             <div
               style={{
@@ -577,7 +595,9 @@ export default async function ProjectDetailPage({
             </div>
           )}
 
-          {/* Agent plans */}
+          {/* ━━━━━━━━━━━━━━━━━
+              AGENT PLANS
+              ━━━━━━━━━━━━━━━━━ */}
           <div>
             <div
               style={{
