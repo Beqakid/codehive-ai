@@ -4,6 +4,7 @@
  * monitors results, and when tests fail, invokes the Fix Agent to propose corrections.
  * Commits fixes to the same PR branch and re-runs the workflow — up to 3 attempts.
  * Safety: never auto-merges, stops on low confidence/high risk, detects repeated errors.
+ * Self-improvement: reads top 3 lessons before each fix; writes a new lesson on success.
  * Exports: runAndFixUntilStable, FixSSEEvent.
  */
 
@@ -61,6 +62,14 @@ interface WorkflowJob {
   steps: Array<{ name: string; status: string; conclusion: string | null }>
 }
 
+type LessonEntry = {
+  errorCategory: string
+  errorPattern: string
+  fixApplied: string
+  filesChanged?: string
+  confidence?: number
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -74,6 +83,135 @@ async function ghFetch(url: string, options: RequestInit = {}): Promise<Response
   }
   if (token) headers.Authorization = `Bearer ${token}`
   return fetch(url, { ...options, headers })
+}
+
+// ── Lessons Helpers ─────────────────────────────────────────────────────
+
+/**
+ * Load up to 3 lessons matching the error category for this project.
+ * Falls back to general project lessons if fewer than 3 category-specific ones exist.
+ */
+async function loadLessons(
+  payload: Payload,
+  projectId: number,
+  errorCategory: string,
+): Promise<LessonEntry[]> {
+  try {
+    // Primary: lessons matching this exact error category, sorted by successCount desc
+    const byCategory = await payload.find({
+      collection: 'lessons-learned',
+      where: {
+        and: [
+          { project: { equals: projectId } },
+          { errorCategory: { equals: errorCategory } },
+        ],
+      },
+      sort: '-successCount',
+      limit: 3,
+      overrideAccess: true,
+    })
+
+    if (byCategory.docs.length >= 3) {
+      return byCategory.docs.map((d) => ({
+        errorCategory: String(d.errorCategory || ''),
+        errorPattern: String(d.errorPattern || ''),
+        fixApplied: String(d.fixApplied || ''),
+        filesChanged: d.filesChanged ? String(d.filesChanged) : undefined,
+        confidence: typeof d.confidence === 'number' ? d.confidence : undefined,
+      }))
+    }
+
+    // Backfill: general lessons for this project (any category)
+    const needed = 3 - byCategory.docs.length
+    const general = await payload.find({
+      collection: 'lessons-learned',
+      where: {
+        and: [
+          { project: { equals: projectId } },
+          { errorCategory: { not_equals: errorCategory } },
+        ],
+      },
+      sort: '-successCount',
+      limit: needed,
+      overrideAccess: true,
+    })
+
+    const combined = [...byCategory.docs, ...general.docs].slice(0, 3)
+    return combined.map((d) => ({
+      errorCategory: String(d.errorCategory || ''),
+      errorPattern: String(d.errorPattern || ''),
+      fixApplied: String(d.fixApplied || ''),
+      filesChanged: d.filesChanged ? String(d.filesChanged) : undefined,
+      confidence: typeof d.confidence === 'number' ? d.confidence : undefined,
+    }))
+  } catch {
+    // Non-critical — don't block the fix loop
+    return []
+  }
+}
+
+/**
+ * Write or increment a lesson after a successful fix.
+ * Called when the workflow passes after one or more fix attempts.
+ */
+async function writeLessonAfterSuccess(
+  payload: Payload,
+  projectId: number,
+  lastAttempt: {
+    errorCategory: string
+    errorSummary: string
+    fixSummary: string
+    filesUpdated: string[]
+    confidence?: number
+  },
+): Promise<void> {
+  try {
+    const filesChanged = lastAttempt.filesUpdated.join(', ')
+    const fixKey = lastAttempt.fixSummary.slice(0, 60)
+
+    // Check if a near-identical lesson already exists (same category + similar fix summary)
+    const existing = await payload.find({
+      collection: 'lessons-learned',
+      where: {
+        and: [
+          { project: { equals: projectId } },
+          { errorCategory: { equals: lastAttempt.errorCategory } },
+          { fixApplied: { contains: fixKey } },
+        ],
+      },
+      limit: 1,
+      overrideAccess: true,
+    })
+
+    if (existing.docs.length > 0) {
+      // Increment successCount on the existing lesson
+      const doc = existing.docs[0]
+      const currentCount = typeof doc.successCount === 'number' ? doc.successCount : 1
+      await payload.update({
+        collection: 'lessons-learned',
+        id: doc.id,
+        overrideAccess: true,
+        data: { successCount: currentCount + 1 },
+      })
+    } else {
+      // Create a new lesson entry
+      await payload.create({
+        collection: 'lessons-learned',
+        overrideAccess: true,
+        data: {
+          project: projectId,
+          errorCategory: lastAttempt.errorCategory,
+          errorPattern: lastAttempt.errorSummary.slice(0, 500),
+          fixApplied: lastAttempt.fixSummary,
+          filesChanged,
+          confidence: lastAttempt.confidence ?? null,
+          successCount: 1,
+        },
+      })
+    }
+  } catch {
+    // Non-critical — don't block the main flow
+  }
 }
 
 // ── GitHub Helpers ──────────────────────────────────────────────────────
@@ -138,7 +276,6 @@ async function waitForWorkflowRun(
   // Quick check for existing new run
   for (let i = 1; i <= INITIAL_CHECK_ATTEMPTS; i++) {
     const run = await findLatestWorkflowRun(owner, repo, branch)
-    // Accept run if it's a new one (different ID from previous) or the initial check
     if (run && (afterRunId === null || run.id !== afterRunId)) return run
     onEvent({
       type: 'status',
@@ -232,7 +369,6 @@ async function getWorkflowLogs(
   let allLogs = ''
 
   for (const job of jobsData.jobs) {
-    // Try to get plain-text logs for the job
     const logsResp = await ghFetch(
       `https://api.github.com/repos/${owner}/${repo}/actions/jobs/${job.id}/logs`,
     )
@@ -240,7 +376,6 @@ async function getWorkflowLogs(
       const text = await logsResp.text()
       allLogs += `\n=== Job: ${job.name} (${job.conclusion}) ===\n${text}\n`
     } else {
-      // Fallback: build logs from step info
       allLogs += `\n=== Job: ${job.name} (${job.conclusion}) ===\n`
       for (const step of job.steps) {
         allLogs += `  Step: ${step.name} — ${step.conclusion ?? step.status}\n`
@@ -400,6 +535,17 @@ export async function runAndFixUntilStable(
         } catch {
           // non-critical
         }
+
+        // ── Write lesson from this successful fix ──────────────────
+        const lastAttempt = previousAttempts[previousAttempts.length - 1]
+        if (lastAttempt) {
+          onEvent({
+            type: 'status',
+            phase: 'lesson',
+            message: '🧠 Writing lesson from successful fix...',
+          })
+          await writeLessonAfterSuccess(payload, projectId, lastAttempt)
+        }
       }
 
       onEvent({
@@ -413,7 +559,6 @@ export async function runAndFixUntilStable(
 
     // ── Step 4: Max attempts reached? ──────────────────────────────
     if (currentAttempt >= MAX_FIX_ATTEMPTS) {
-      // Mark last attempt as needs_human_review
       try {
         const attempts = await payload.find({
           collection: 'fix-attempts',
@@ -474,7 +619,6 @@ export async function runAndFixUntilStable(
     seenFingerprints.set(parsedError.fingerprint, fpCount)
 
     if (fpCount > 2) {
-      // Same error 3+ times — infinite loop guard
       try {
         await payload.create({
           collection: 'fix-attempts',
@@ -507,8 +651,22 @@ export async function runAndFixUntilStable(
       return
     }
 
-    // Broaden file context on second occurrence of same error
     const broadenContext = fpCount === 2
+
+    // ── Step 5c: Load lessons for this error category ───────────────
+    onEvent({
+      type: 'status',
+      phase: 'lessons',
+      message: '🧠 Loading lessons from past fixes...',
+    })
+    const lessons = await loadLessons(payload, projectId, parsedError.category)
+    if (lessons.length > 0) {
+      onEvent({
+        type: 'status',
+        phase: 'lessons',
+        message: `📚 Injecting ${lessons.length} lesson(s) into Fix Agent context`,
+      })
+    }
 
     // ── Step 6: Create FixAttempt record ────────────────────────────
     let fixAttemptId: number | undefined
@@ -549,7 +707,6 @@ export async function runAndFixUntilStable(
     const prFiles = await getChangedFilesFromPR(owner, repo, prNumber)
     const prFilePaths = prFiles.map((f) => f.filename)
 
-    // Broadened context: ALL PR files. Normal: error files + first 5 PR files
     const filesToFetch = broadenContext
       ? [...new Set([...errorFiles, ...prFilePaths])]
       : [...new Set([...errorFiles, ...prFilePaths.slice(0, 5)])]
@@ -569,7 +726,7 @@ export async function runAndFixUntilStable(
       message: `📄 Fetched ${repoFiles.length} source files${broadenContext ? ' (broadened context)' : ''}`,
     })
 
-    // ── Step 8: Call Fix Agent ──────────────────────────────────────
+    // ── Step 8: Call Fix Agent (with lessons) ───────────────────────
     onEvent({
       type: 'status',
       phase: 'fix_agent',
@@ -590,6 +747,7 @@ export async function runAndFixUntilStable(
           repoFiles,
           packageJson: packageJson ?? undefined,
           tsconfigJson: tsconfigJson ?? undefined,
+          lessons,
           previousAttempts,
         },
         (chunk) => {
@@ -600,7 +758,6 @@ export async function runAndFixUntilStable(
       const errMsg = `Fix Agent failed: ${String(err)}`
       onEvent({ type: 'error', message: errMsg })
 
-      // Update DB record
       if (fixAttemptId) {
         try {
           await payload.update({
@@ -614,7 +771,6 @@ export async function runAndFixUntilStable(
         }
       }
 
-      // Track for next iteration
       previousAttempts.push({
         attemptNumber: currentAttempt,
         errorCategory: parsedError.category,
@@ -729,6 +885,7 @@ export async function runAndFixUntilStable(
         fixSummary: 'No files committed',
         filesUpdated: [],
         result: 'commit_failed',
+        confidence: fixResult.confidence,
       })
       continue
     }
@@ -760,7 +917,7 @@ export async function runAndFixUntilStable(
       }
     }
 
-    // Record for next attempt context
+    // Record for next attempt context (includes confidence for lesson writing)
     previousAttempts.push({
       attemptNumber: currentAttempt,
       errorCategory: parsedError.category,
@@ -768,6 +925,7 @@ export async function runAndFixUntilStable(
       fixSummary: fixResult.summary,
       filesUpdated: updatedPaths,
       result: 'committed',
+      confidence: fixResult.confidence,
     })
 
     onEvent({
@@ -781,7 +939,7 @@ export async function runAndFixUntilStable(
     await sleep(3000)
   }
 
-  // Should not reach here, but safety net
+  // Safety net
   onEvent({
     type: 'done',
     finalStatus: 'needs_human_review',

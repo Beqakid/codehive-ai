@@ -2,6 +2,7 @@ import * as migration_20260425_205143 from './20260425_205143'
 import * as migration_20260426_commands_runs from './20260426_commands_runs'
 import * as migration_20260427_fix_attempts from './20260427_fix_attempts'
 import * as migration_20260505_project_memory from './20260505_project_memory'
+import * as migration_20260505_lessons_learned from './20260505_lessons_learned'
 
 export const migrations = [
   {
@@ -23,5 +24,10 @@ export const migrations = [
     up: migration_20260505_project_memory.up,
     down: migration_20260505_project_memory.down,
     name: '20260505_project_memory',
+  },
+  {
+    up: migration_20260505_lessons_learned.up,
+    down: migration_20260505_lessons_learned.down,
+    name: '20260505_lessons_learned',
   },
 ]

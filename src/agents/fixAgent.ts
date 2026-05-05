@@ -3,6 +3,7 @@
  * @description Self-fix agent using Claude Sonnet 4.6. Receives error context from failed
  * GitHub Actions runs and proposes file corrections. Returns strict JSON with full file
  * replacements, confidence scores, and risk assessment.
+ * Injects up to 3 lessons from past successful fixes before each attempt.
  * Exports: runFixAgent, FixAgentInput, FixAgentResult.
  */
 
@@ -19,6 +20,14 @@ export interface FixAgentInput {
   repoFiles: Array<{ path: string; content: string }>
   packageJson?: string
   tsconfigJson?: string
+  /** Top matching lessons from past successful fixes — injected by selfFixOrchestrator */
+  lessons?: Array<{
+    errorCategory: string
+    errorPattern: string
+    fixApplied: string
+    filesChanged?: string
+    confidence?: number
+  }>
   previousAttempts: Array<{
     attemptNumber: number
     errorCategory: string
@@ -26,6 +35,7 @@ export interface FixAgentInput {
     fixSummary: string
     filesUpdated: string[]
     result: string
+    confidence?: number
   }>
 }
 
@@ -59,6 +69,7 @@ RULES:
 - Be conservative — make the minimum changes needed to fix the error
 - If you are not confident the fix will work (< 0.65), set needsHumanReview to true
 - If the fix is risky or changes many files, set riskLevel to "high"
+- If lessons from previous successful fixes are provided, ALWAYS check them first
 
 Your response must be EXACTLY this JSON structure (no other text before or after):
 {
@@ -93,6 +104,24 @@ ${input.errorSummary}
 ${input.rawLogs.slice(0, 8000)}
 \`\`\``
 
+  // ── Inject lessons from past successful fixes ────────────────────
+  if (input.lessons && input.lessons.length > 0) {
+    prompt += `\n\n## ✅ Lessons from Previous Successful Fixes (CHECK THESE FIRST)`
+    prompt += `\nThese patterns were observed in this project before and the fixes below resolved them.`
+    prompt += `\nIf the current error matches any of these patterns, apply the same fix.`
+    for (const lesson of input.lessons) {
+      prompt += `\n\n### Pattern: ${lesson.errorCategory}`
+      prompt += `\n- Error pattern: ${lesson.errorPattern}`
+      prompt += `\n- Fix that worked: ${lesson.fixApplied}`
+      if (lesson.filesChanged) {
+        prompt += `\n- Files typically involved: ${lesson.filesChanged}`
+      }
+      if (lesson.confidence !== undefined) {
+        prompt += `\n- Agent confidence when applied: ${(lesson.confidence * 100).toFixed(0)}%`
+      }
+    }
+  }
+
   if (input.packageJson) {
     prompt += `\n\n## package.json\n\`\`\`json\n${input.packageJson}\n\`\`\``
   }
@@ -116,6 +145,9 @@ ${input.rawLogs.slice(0, 8000)}
       prompt += `\n- Summary: ${attempt.errorSummary.slice(0, 200)}`
       prompt += `\n- Fix applied: ${attempt.fixSummary}`
       prompt += `\n- Files changed: ${attempt.filesUpdated.join(', ')}`
+      if (attempt.confidence !== undefined) {
+        prompt += `\n- Confidence: ${(attempt.confidence * 100).toFixed(0)}%`
+      }
       prompt += `\n- Result: ${attempt.result}`
     }
     prompt += `\n\nIMPORTANT: The above fixes did NOT work. You must try a DIFFERENT approach.`
