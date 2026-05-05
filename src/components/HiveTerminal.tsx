@@ -238,13 +238,13 @@ export default function HiveTerminal({
                   )
                 })}
               </div>
-              <a href="/projects/new" style={{
+              <Link href="/projects/new" style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '6px 8px', borderRadius: 7, textDecoration: 'none',
                 color: '#334155', fontSize: '0.74rem', marginTop: 2,
               }}>
                 <span style={{ fontSize: '0.8rem' }}>＋</span> New Project
-              </a>
+              </Link>
             </div>
 
             {/* Current plan */}
