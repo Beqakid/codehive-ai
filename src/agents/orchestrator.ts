@@ -1,15 +1,16 @@
 /**
  * @module orchestrator
  * @description Main AI agent pipeline orchestrator. Coordinates Product, Architect,
- * and Reviewer agents in sequence with live SSE streaming. Fetches GitHub repo context,
- * saves AgentRuns/AgentPlan to Payload, and creates GitHub branches and PRs.
- * Exports: runOrchestrator, SSEEvent. Uses keyword-first verdict parsing with o4-mini fallback.
+ * UI/UX, and Reviewer agents in sequence with live SSE streaming. Fetches GitHub repo
+ * context, saves AgentRuns/AgentPlan to Payload, and creates GitHub branches and PRs.
+ * Exports: runOrchestrator, parseReviewVerdict, SSEEvent.
  * @note All Payload operations use overrideAccess: true (system-level).
  */
 
 import type { Payload } from 'payload'
 import { runProductAgent } from './productAgent'
 import { runArchitectAgent } from './architectAgent'
+import { runUIUXAgent } from './uiuxAgent'
 import { runReviewerAgent } from './reviewerAgent'
 import {
   getRepoContext,
@@ -27,6 +28,7 @@ export type SSEEvent =
   | { type: 'agent_start'; agent: string; message: string }
   | { type: 'chunk'; agent: string; text: string }
   | { type: 'agent_done'; agent: string }
+  | { type: 'agent_output'; agent: string; content: string }
   | { type: 'verdict'; approved: boolean; score: number | null; reason: string }
   | { type: 'pr_created'; url: string }
   | { type: 'plan_saved'; planId: number }
@@ -35,9 +37,8 @@ export type SSEEvent =
 
 /**
  * Extract numeric review score from review text.
- * Looks for patterns like "Overall Score: 7.2/10", "Score: 8/10", "Rating: 6.5/10"
  */
-function extractReviewScore(reviewText: string): number | null {
+export function extractReviewScore(reviewText: string): number | null {
   const patterns = [
     /(?:overall\s+)?score\s*:\s*(\d+(?:\.\d+)?)\s*\/\s*10/i,
     /(?:overall\s+)?rating\s*:\s*(\d+(?:\.\d+)?)\s*\/\s*10/i,
@@ -55,12 +56,10 @@ function extractReviewScore(reviewText: string): number | null {
 
 /**
  * Extract the verdict reason — key concerns from the reviewer.
- * Looks for sections labeled "Critical Issues", "Concerns", "Blockers", etc.
  */
 function extractVerdictReason(reviewText: string, isApproved: boolean): string {
   if (isApproved) return 'Reviewer approved the plan.'
 
-  // Try to find a summary of concerns
   const patterns = [
     /(?:critical\s+(?:issues?|concerns?|blockers?))[\s:]*\n([\s\S]{30,500}?)(?:\n\n|\n#{1,3}\s|$)/i,
     /(?:key\s+(?:issues?|concerns?|blockers?))[\s:]*\n([\s\S]{30,500}?)(?:\n\n|\n#{1,3}\s|$)/i,
@@ -75,20 +74,14 @@ function extractVerdictReason(reviewText: string, isApproved: boolean): string {
     }
   }
 
-  // Fallback: grab the last 300 chars which usually contain the verdict
   return reviewText.slice(-300).trim()
 }
 
 /**
- * Keyword-first verdict parsing.
- * 1. Check score first — score >= 7.5 approves even if NEEDS_REVISION keyword present
- *    (handles reviewers that note minor concerns but still give a passing score)
- * 2. Check for explicit NEEDS_REVISION / NOT_APPROVED / REJECTED keywords (only when score < 7.5)
- * 3. Check for explicit APPROVED keyword
- * 4. Check numeric score (< 7.5 = not approved)
- * 5. Only fall back to o4-mini when ambiguous
+ * Keyword-first verdict parsing with score threshold gate and o4-mini tiebreaker.
+ * Exported so re-review route can reuse it.
  */
-async function parseReviewVerdict(reviewText: string): Promise<{
+export async function parseReviewVerdict(reviewText: string): Promise<{
   approved: boolean
   score: number | null
   reason: string
@@ -96,23 +89,15 @@ async function parseReviewVerdict(reviewText: string): Promise<{
   const fullTextUpper = reviewText.toUpperCase()
   const score = extractReviewScore(reviewText)
 
-  // ── Step 1: High score overrides any negative keywords ────────────────
-  // A score >= 7.5 means the reviewer thinks the plan is solid enough.
-  // Minor concerns flagged with NEEDS_REVISION don't block a high-scoring plan.
+  // Step 1: High score overrides any negative keywords
   if (score !== null && score >= 7.5) {
     return { approved: true, score, reason: 'Reviewer approved the plan.' }
   }
 
-  // ── Step 2: Explicit negative keywords (only when score is low/unknown) ─
+  // Step 2: Explicit negative keywords (only when score is low/unknown)
   const negativeKeywords = [
-    'NEEDS_REVISION',
-    'NEEDS REVISION',
-    'NOT_APPROVED',
-    'NOT APPROVED',
-    'REJECTED',
-    'DO NOT PROCEED',
-    'CANNOT APPROVE',
-    'RECOMMEND REVISION',
+    'NEEDS_REVISION', 'NEEDS REVISION', 'NOT_APPROVED', 'NOT APPROVED',
+    'REJECTED', 'DO NOT PROCEED', 'CANNOT APPROVE', 'RECOMMEND REVISION',
   ]
   const hasExplicitNegative = negativeKeywords.some((kw) => fullTextUpper.includes(kw))
 
@@ -121,13 +106,13 @@ async function parseReviewVerdict(reviewText: string): Promise<{
     return { approved: false, score, reason }
   }
 
-  // ── Step 3: Low score = not approved ──────────────────────────────────
+  // Step 3: Low score = not approved
   if (score !== null && score < 7.5) {
     const reason = extractVerdictReason(reviewText, false)
     return { approved: false, score, reason: `Score ${score}/10 below threshold (7.5). ${reason}` }
   }
 
-  // ── Step 4: Explicit positive keywords ────────────────────────────────
+  // Step 4: Explicit positive keywords
   const positiveKeywords = ['APPROVED', 'LGTM', 'READY TO PROCEED', 'SHIP IT', 'PROCEED WITH']
   const hasExplicitPositive = positiveKeywords.some((kw) => fullTextUpper.includes(kw))
 
@@ -136,15 +121,14 @@ async function parseReviewVerdict(reviewText: string): Promise<{
     return { approved: true, score, reason }
   }
 
-  // ── Step 5: High score alone = approved ───────────────────────────────
+  // Step 5: High score alone = approved
   if (score !== null && score >= 8.0) {
     return { approved: true, score, reason: `Score ${score}/10 — reviewer gave high marks.` }
   }
 
-  // ── Step 6: Ambiguous — use o4-mini as tiebreaker ─────────────────────
+  // Step 6: Ambiguous — use o4-mini as tiebreaker
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    // No API key fallback — be conservative, require revision
     return {
       approved: false,
       score,
@@ -153,7 +137,6 @@ async function parseReviewVerdict(reviewText: string): Promise<{
   }
 
   try {
-    // Send BOTH the beginning AND end of the review (where verdict usually is)
     const reviewHead = reviewText.slice(0, 2000)
     const reviewTail = reviewText.slice(-2000)
     const combinedText =
@@ -172,14 +155,7 @@ async function parseReviewVerdict(reviewText: string): Promise<{
         messages: [
           {
             role: 'user',
-            content: `You are a plan evaluation assistant. Read the following technical review and determine if the overall verdict is APPROVED (ready to proceed to code generation) or NOT_APPROVED (needs revision, has critical issues, or is rejected).
-
-IMPORTANT: Look for explicit verdict statements like "Final Verdict:", "Recommendation:", or score-based decisions. A score below 7.5/10 means NOT_APPROVED.
-
-Respond with ONLY the word: APPROVED or NOT_APPROVED
-
----
-${combinedText}`,
+            content: `You are a plan evaluation assistant. Read the following technical review and determine if the overall verdict is APPROVED (ready to proceed to code generation) or NOT_APPROVED (needs revision, has critical issues, or is rejected).\n\nIMPORTANT: Look for explicit verdict statements like "Final Verdict:", "Recommendation:", or score-based decisions. A score below 7.5/10 means NOT_APPROVED.\n\nRespond with ONLY the word: APPROVED or NOT_APPROVED\n\n---\n${combinedText}`,
           },
         ],
         max_completion_tokens: 10,
@@ -187,7 +163,6 @@ ${combinedText}`,
     })
 
     if (!response.ok) {
-      // API error — be conservative
       return { approved: false, score, reason: 'o4-mini API error — defaulting to needs revision.' }
     }
 
@@ -210,7 +185,7 @@ export async function runOrchestrator(
 ): Promise<void> {
   onEvent({ type: 'start', message: '🚀 Loading coding request...' })
 
-  // 1. Load CodingRequest with depth:2 to populate project.repoUrl
+  // 1. Load CodingRequest
   const codingRequest = await payload.findByID({
     collection: 'coding-requests',
     id: codingRequestId,
@@ -309,6 +284,7 @@ export async function runOrchestrator(
     throw new Error(`Product Agent failed: ${String(err)}`)
   }
   onEvent({ type: 'agent_done', agent: 'product' })
+  onEvent({ type: 'agent_output', agent: 'product', content: productSpec })
 
   // 4. Architect Agent (Claude Sonnet + extended thinking)
   onEvent({
@@ -364,8 +340,65 @@ export async function runOrchestrator(
     throw new Error(`Architect Agent failed: ${String(err)}`)
   }
   onEvent({ type: 'agent_done', agent: 'architect' })
+  onEvent({ type: 'agent_output', agent: 'architect', content: architectureDesign })
 
-  // 5. Reviewer Agent (Claude Sonnet)
+  // 5. UI/UX Design Agent (Claude Sonnet 4.6)
+  onEvent({
+    type: 'agent_start',
+    agent: 'uiux',
+    message: '🎨 UI/UX Designer crafting interface blueprint...',
+  })
+  const uiuxStart = Date.now()
+
+  const uiuxRun = await payload.create({
+    collection: 'agent-runs',
+    overrideAccess: true,
+    data: {
+      agentName: 'uiux',
+      codingRequest: codingRequestId,
+      status: 'running',
+      input: { title: codingRequest.title, productSpec, architectureDesign },
+    },
+  })
+
+  let uiuxDesign = ''
+  try {
+    uiuxDesign = await runUIUXAgent(
+      {
+        title: codingRequest.title,
+        description: codingRequest.description,
+        productSpec,
+        architectureDesign,
+      },
+      (text) => onEvent({ type: 'chunk', agent: 'uiux', text }),
+    )
+    await payload.update({
+      collection: 'agent-runs',
+      id: uiuxRun.id,
+      overrideAccess: true,
+      data: {
+        status: 'completed',
+        output: { markdown: uiuxDesign },
+        durationMs: Date.now() - uiuxStart,
+      },
+    })
+  } catch (err) {
+    await payload.update({
+      collection: 'agent-runs',
+      id: uiuxRun.id,
+      overrideAccess: true,
+      data: {
+        status: 'failed',
+        errorMessage: String(err),
+        durationMs: Date.now() - uiuxStart,
+      },
+    })
+    throw new Error(`UI/UX Agent failed: ${String(err)}`)
+  }
+  onEvent({ type: 'agent_done', agent: 'uiux' })
+  onEvent({ type: 'agent_output', agent: 'uiux', content: uiuxDesign })
+
+  // 6. Reviewer Agent (Claude Sonnet)
   onEvent({
     type: 'agent_start',
     agent: 'reviewer',
@@ -414,8 +447,9 @@ export async function runOrchestrator(
     throw new Error(`Reviewer Agent failed: ${String(err)}`)
   }
   onEvent({ type: 'agent_done', agent: 'reviewer' })
+  onEvent({ type: 'agent_output', agent: 'reviewer', content: reviewFeedback })
 
-  // 6. Parse review verdict — score-first with keyword fallback and o4-mini tiebreaker
+  // 7. Parse review verdict
   onEvent({ type: 'start', message: '🧠 Evaluating review verdict...' })
   const verdict = await parseReviewVerdict(reviewFeedback)
   onEvent({
@@ -425,7 +459,7 @@ export async function runOrchestrator(
     reason: verdict.reason,
   })
 
-  // 7. Save AgentPlan
+  // 8. Save AgentPlan — uiuxDesign stored in finalPlan JSON (no schema migration needed)
   const agentPlan = await payload.create({
     collection: 'agent-plans',
     overrideAccess: true,
@@ -440,6 +474,7 @@ export async function runOrchestrator(
         generatedAt: new Date().toISOString(),
         repoUrl: repoUrl || null,
         prUrl: null,
+        uiuxDesign: uiuxDesign,
       },
       verdictReason: verdict.reason.slice(0, 2000),
       reviewScore: verdict.score,
@@ -448,7 +483,7 @@ export async function runOrchestrator(
   })
   onEvent({ type: 'plan_saved', planId: agentPlan.id })
 
-  // 8. Create GitHub PR (optional — needs GITHUB_TOKEN, retried on transient 500s)
+  // 9. Create GitHub PR
   if (parsedRepo && process.env.GITHUB_TOKEN) {
     try {
       onEvent({ type: 'start', message: '📝 Creating GitHub PR with agent plan...' })
@@ -479,6 +514,12 @@ ${architectureDesign}
 
 ---
 
+## 🎨 UI/UX Design
+
+${uiuxDesign}
+
+---
+
 ## 🔎 Review Feedback
 
 ${reviewFeedback}
@@ -493,7 +534,6 @@ ${reviewFeedback}
         `feat: add AI agent plan for "${codingRequest.title}"`,
       )
 
-      // Retry PR creation — GitHub occasionally returns transient 500s
       const prUrl = await withRetry(
         () =>
           createPullRequest(
@@ -520,6 +560,7 @@ ${reviewFeedback}
             generatedAt: new Date().toISOString(),
             repoUrl,
             prUrl,
+            uiuxDesign: uiuxDesign,
           },
         },
       })
@@ -528,7 +569,7 @@ ${reviewFeedback}
     }
   }
 
-  // 9. Update CodingRequest status
+  // 10. Update CodingRequest status
   await payload.update({
     collection: 'coding-requests',
     id: codingRequestId,
