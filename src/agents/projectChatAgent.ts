@@ -113,7 +113,7 @@ const TOOLS = [
   {
     name: 'read_repo_file',
     description:
-      'Read the content of a file from the GitHub repository. Use to inspect source code, configs, test files, package.json, etc.',
+      'Read the content of a file from a GitHub repository. Defaults to this project\'s repo. Pass owner/repo to read from ANY GitHub repo you have access to (e.g. other projects like viliniu, gotocare).',
     input_schema: {
       type: 'object',
       properties: {
@@ -121,19 +121,35 @@ const TOOLS = [
           type: 'string',
           description: 'File path relative to repo root, e.g. "src/index.ts" or "package.json"',
         },
+        owner: {
+          type: 'string',
+          description: 'GitHub repo owner. Defaults to this project\'s repo owner. Override to read from another repo.',
+        },
+        repo: {
+          type: 'string',
+          description: 'GitHub repo name. Defaults to this project\'s repo. Override to read from another repo (e.g. "gotocare", "viliniu").',
+        },
       },
       required: ['path'],
     },
   },
   {
     name: 'list_repo_files',
-    description: 'List files in a directory of the GitHub repository.',
+    description: 'List files in a directory of a GitHub repository. Defaults to this project\'s repo. Pass owner/repo to browse ANY GitHub repo you have access to.',
     input_schema: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
           description: 'Directory path, e.g. "src" or "src/routes". Use "" for root.',
+        },
+        owner: {
+          type: 'string',
+          description: 'GitHub repo owner. Optional — defaults to this project\'s owner.',
+        },
+        repo: {
+          type: 'string',
+          description: 'GitHub repo name. Optional — defaults to this project\'s repo. Override for other repos.',
         },
       },
       required: ['path'],
@@ -143,11 +159,13 @@ const TOOLS = [
   {
     name: 'get_ci_status',
     description:
-      'Get the latest GitHub Actions workflow run status. Optionally filter by branch.',
+      'Get the latest GitHub Actions workflow run status. Optionally filter by branch. Pass owner/repo to check CI for any repo.',
     input_schema: {
       type: 'object',
       properties: {
         branch: { type: 'string', description: 'Branch name to filter by. Optional.' },
+        owner: { type: 'string', description: 'GitHub repo owner. Optional — defaults to this project\'s owner.' },
+        repo: { type: 'string', description: 'GitHub repo name. Optional — defaults to this project\'s repo.' },
       },
       required: [],
     },
@@ -160,6 +178,8 @@ const TOOLS = [
       type: 'object',
       properties: {
         run_id: { type: 'string', description: 'The GitHub Actions run ID (numeric string).' },
+        owner: { type: 'string', description: 'GitHub repo owner. Optional.' },
+        repo: { type: 'string', description: 'GitHub repo name. Optional.' },
       },
       required: ['run_id'],
     },
@@ -184,7 +204,7 @@ const TOOLS = [
   {
     name: 'fetch_url',
     description:
-      'Fetch the content of a specific URL — useful for reading documentation pages, GitHub issues, npm package READMEs, etc.',
+      'Fetch the content of a specific URL — useful for reading documentation pages, GitHub issues, npm package READMEs, etc. GitHub API URLs (api.github.com) are automatically authenticated.',
     input_schema: {
       type: 'object',
       properties: {
@@ -257,7 +277,7 @@ async function execReadRepoFile(owner: string, repo: string, filePath: string, t
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
   })
-  if (!res.ok) return `Error ${res.status}: file not found at "${filePath}"`
+  if (!res.ok) return `Error ${res.status}: file not found at "${filePath}" in ${owner}/${repo}`
   const data = await res.json() as { content?: string; encoding?: string; message?: string }
   if (data.message) return `Error: ${data.message}`
   if (data.encoding === 'base64' && data.content) {
@@ -271,7 +291,7 @@ async function execListRepoFiles(owner: string, repo: string, dirPath: string, t
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${dirPath}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
   })
-  if (!res.ok) return `Error ${res.status}: directory not found at "${dirPath}"`
+  if (!res.ok) return `Error ${res.status}: directory not found at "${dirPath}" in ${owner}/${repo}`
   const data = await res.json() as Array<{ name: string; type: string; size?: number }>
   if (!Array.isArray(data)) return 'Error: not a directory'
   return data.map(f => `${f.type === 'dir' ? '📁' : '📄'} ${f.name}${f.size ? ` (${f.size}b)` : ''}`).join('\n')
@@ -281,7 +301,7 @@ async function execGetCIStatus(owner: string, repo: string, branch: string | und
   let url = `https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=5`
   if (branch) url += `&branch=${encodeURIComponent(branch)}`
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } })
-  if (!res.ok) return `Error ${res.status}: could not fetch CI runs`
+  if (!res.ok) return `Error ${res.status}: could not fetch CI runs for ${owner}/${repo}`
   const data = await res.json() as { workflow_runs?: Array<{ id: number; name: string; status: string; conclusion: string | null; head_branch: string; head_sha: string; created_at: string; html_url: string }> }
   const runs = data.workflow_runs ?? []
   if (!runs.length) return 'No CI runs found.'
@@ -338,10 +358,18 @@ async function execSearchWeb(query: string): Promise<string> {
   }
 }
 
-async function execFetchUrl(url: string): Promise<string> {
+async function execFetchUrl(url: string, token: string): Promise<string> {
   try {
+    // Auto-authenticate GitHub API calls (needed for private repos)
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (compatible; CodeHive-Agent/1.0)',
+    }
+    if (url.startsWith('https://api.github.com') && token) {
+      headers['Authorization'] = `Bearer ${token}`
+      headers['Accept'] = 'application/vnd.github.v3+json'
+    }
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CodeHive-Agent/1.0)' },
+      headers,
       signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) return `HTTP ${res.status}: could not fetch ${url}`
@@ -384,6 +412,12 @@ async function dispatchTool(
   token: string,
   actionDispatcher?: ActionDispatcher,
 ): Promise<string> {
+  // Allow per-call owner/repo overrides — fall back to project context
+  const resolveOwner = (input: Record<string, unknown>) =>
+    input.owner ? String(input.owner) : ctx.repoOwner
+  const resolveRepo = (input: Record<string, unknown>) =>
+    input.repo ? String(input.repo) : ctx.repoName
+
   switch (toolName) {
     case 'write_memory':
       if (actionDispatcher) {
@@ -393,17 +427,17 @@ async function dispatchTool(
     case 'search_memory':
       return execSearchMemory(ctx.memories, String(toolInput.query ?? ''))
     case 'read_repo_file':
-      return execReadRepoFile(ctx.repoOwner, ctx.repoName, String(toolInput.path ?? ''), token)
+      return execReadRepoFile(resolveOwner(toolInput), resolveRepo(toolInput), String(toolInput.path ?? ''), token)
     case 'list_repo_files':
-      return execListRepoFiles(ctx.repoOwner, ctx.repoName, String(toolInput.path ?? ''), token)
+      return execListRepoFiles(resolveOwner(toolInput), resolveRepo(toolInput), String(toolInput.path ?? ''), token)
     case 'get_ci_status':
-      return execGetCIStatus(ctx.repoOwner, ctx.repoName, toolInput.branch ? String(toolInput.branch) : undefined, token)
+      return execGetCIStatus(resolveOwner(toolInput), resolveRepo(toolInput), toolInput.branch ? String(toolInput.branch) : undefined, token)
     case 'get_ci_job_steps':
-      return execGetCIJobSteps(ctx.repoOwner, ctx.repoName, String(toolInput.run_id ?? ''), token)
+      return execGetCIJobSteps(resolveOwner(toolInput), resolveRepo(toolInput), String(toolInput.run_id ?? ''), token)
     case 'search_web':
       return execSearchWeb(String(toolInput.query ?? ''))
     case 'fetch_url':
-      return execFetchUrl(String(toolInput.url ?? ''))
+      return execFetchUrl(String(toolInput.url ?? ''), token)
     case 'approve_plan':
     case 'trigger_fix':
     case 'trigger_codegen':
@@ -480,7 +514,7 @@ No memories yet. Start storing lessons as you learn them — use write_memory pr
 
   return `You are the **Project Manager Agent** for "${ctx.projectName}" — a Tasklet-grade AI assistant embedded inside CodeHive AI.
 
-You have complete context of this project, live tools to inspect the GitHub repo, CI pipeline, and the web, and the ability to take direct actions AND store/retrieve persistent memory.
+You have complete context of this project, live tools to inspect any GitHub repo, CI pipeline, and the web, and the ability to take direct actions AND store/retrieve persistent memory.
 
 ## Project
 - **Name:** ${ctx.projectName}
@@ -496,9 +530,9 @@ ${memoryContext}
 
 ## Your Tools (12 total)
 **Memory:** write_memory (persist lessons/decisions), search_memory (query past knowledge)
-**Repo:** read_repo_file, list_repo_files
-**CI:** get_ci_status, get_ci_job_steps
-**Web:** search_web (DuckDuckGo), fetch_url (any URL)
+**Repo:** read_repo_file, list_repo_files — accept optional owner/repo to read ANY GitHub repo
+**CI:** get_ci_status, get_ci_job_steps — accept optional owner/repo for any repo
+**Web:** search_web (DuckDuckGo), fetch_url (any URL — GitHub API calls auto-authenticated)
 **Actions:** approve_plan, trigger_fix, trigger_codegen, trigger_sandbox
 
 ## How to behave
@@ -507,6 +541,7 @@ ${memoryContext}
 - Be direct, specific, and tool-driven — don't guess when you can check
 - **For debugging:** search_memory → get_ci_status → get_ci_job_steps → read failing file → search_web if needed
 - **For approvals/triggers:** confirm intent, then use action tool, then write a milestone memory
+- **To read another repo** (e.g. gotocare, viliniu): use read_repo_file/list_repo_files with owner="Beqakid" repo="gotocare"
 - Cite file names, test names, line numbers, error messages when relevant
 - Format with markdown — headers, code blocks, bullet points
 - When asked for a "briefing": check memory → check CI → summarize plan + health + recommended next action
