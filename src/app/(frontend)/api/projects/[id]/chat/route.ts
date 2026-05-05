@@ -3,7 +3,6 @@ import { getPayload } from 'payload'
 import config from '@payload-config'
 import { runProjectChat, ProjectContext, MemoryEntry } from '@/agents/projectChatAgent'
 
-export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
 
 export async function POST(
