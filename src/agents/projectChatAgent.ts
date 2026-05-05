@@ -1,26 +1,28 @@
 /**
- * Project Manager Agent — Full agentic loop using raw fetch (no SDK).
- * Uses Anthropic tool use API directly to read files, check CI, inspect logs.
- * Streams SSE events: tool_call, tool_result, text_delta, done, error.
+ * Project Manager Agent — Tasklet-grade capability embedded in every project.
+ * Features: persistent context, direct action triggers, web search, repo inspection, CI analysis.
+ * Uses raw fetch to Anthropic API (no SDK). Signature matches the route handler exactly.
  */
-
-import { parseAnthropicStream } from '../lib/stream-parsers'
 
 export interface ProjectContext {
   projectId: number
   projectName: string
+  projectDescription?: string
   repoOwner: string
   repoName: string
-  repoBranch?: string
-  plans: Array<{
+  repoUrl?: string
+  latestPlan?: {
     id: number
     status: string
-    verdictScore?: number
+    reviewScore?: number | null
+    verdictReason?: string | null
+    prBranch?: string | null
+    prUrl?: string | null
     productSpec?: string
     architectureDesign?: string
     uiuxDesign?: string
-    reviewerFeedback?: string
-  }>
+    reviewFeedback?: string
+  }
   fixAttempts: Array<{
     id: number
     attemptNumber: number
@@ -30,7 +32,6 @@ export interface ProjectContext {
     fixSummary?: string
     confidence?: number
     needsHumanReview?: boolean
-    pullRequestUrl?: string
     branchName?: string
   }>
 }
@@ -40,18 +41,28 @@ export interface ChatMessage {
   content: string
 }
 
-type SSEEmit = (event: string, data: unknown) => void
+export type ActionDispatcher = (
+  action: string,
+  params: Record<string, unknown>,
+) => Promise<string>
+
+type Send = (obj: object) => void | Promise<void>
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
 const TOOLS = [
+  // ── Repo tools ──
   {
     name: 'read_repo_file',
-    description: 'Read the content of a file from the GitHub repository. Use this to inspect source code, configs, test files, etc.',
+    description:
+      'Read the content of a file from the GitHub repository. Use to inspect source code, configs, test files, package.json, etc.',
     input_schema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'File path relative to repo root, e.g. "src/index.ts" or "package.json"' },
+        path: {
+          type: 'string',
+          description: 'File path relative to repo root, e.g. "src/index.ts" or "package.json"',
+        },
       },
       required: ['path'],
     },
@@ -62,14 +73,19 @@ const TOOLS = [
     input_schema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Directory path, e.g. "src" or "src/routes". Use "" for root.' },
+        path: {
+          type: 'string',
+          description: 'Directory path, e.g. "src" or "src/routes". Use "" for root.',
+        },
       },
       required: ['path'],
     },
   },
+  // ── CI tools ──
   {
     name: 'get_ci_status',
-    description: 'Get the latest GitHub Actions workflow run status for the project repo or a specific branch.',
+    description:
+      'Get the latest GitHub Actions workflow run status. Optionally filter by branch.',
     input_schema: {
       type: 'object',
       properties: {
@@ -80,7 +96,8 @@ const TOOLS = [
   },
   {
     name: 'get_ci_job_steps',
-    description: 'Get the detailed step-by-step breakdown of a specific CI run to identify exactly which step failed and why.',
+    description:
+      'Get step-by-step breakdown of a specific CI run to identify exactly which step failed.',
     input_schema: {
       type: 'object',
       properties: {
@@ -89,303 +106,426 @@ const TOOLS = [
       required: ['run_id'],
     },
   },
+  // ── Web tools ──
+  {
+    name: 'search_web',
+    description:
+      'Search the web for documentation, error message solutions, Stack Overflow answers, library docs, etc. Returns DuckDuckGo instant answers and related results.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Search query, e.g. "Jest mock module not found TypeScript" or "bcryptjs vs bcrypt node 20"',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'fetch_url',
+    description:
+      'Fetch the content of a specific URL — useful for reading documentation pages, GitHub issues, npm package READMEs, etc.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Full URL to fetch, e.g. "https://jestjs.io/docs/configuration"',
+        },
+      },
+      required: ['url'],
+    },
+  },
+  // ── Action tools ──
+  {
+    name: 'approve_plan',
+    description:
+      'Approve the current agent plan so that code generation can begin. Only use if the user explicitly asks to approve.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        plan_id: { type: 'number', description: 'The plan ID to approve.' },
+        reason: { type: 'string', description: 'Brief reason for approval.' },
+      },
+      required: ['plan_id'],
+    },
+  },
+  {
+    name: 'trigger_fix',
+    description:
+      'Trigger the automated fix loop to re-run CI and attempt to fix failing tests. Use when the user asks to run a fix.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: {
+          type: 'string',
+          description: 'Optional note to the user about what the fix loop will attempt.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'trigger_codegen',
+    description:
+      'Trigger code generation for the approved plan. Use when the user asks to generate code.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string', description: 'Optional note about what will be generated.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'trigger_sandbox',
+    description:
+      'Trigger the sandbox test runner to execute tests on the current branch.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string', description: 'Optional note.' },
+      },
+      required: [],
+    },
+  },
 ]
 
 // ─── Tool executors ───────────────────────────────────────────────────────────
 
-async function execReadRepoFile(
-  owner: string,
-  repo: string,
-  path: string,
-  token: string,
-): Promise<string> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
-  const res = await fetch(url, {
+async function execReadRepoFile(owner: string, repo: string, path: string, token: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
   })
-  if (!res.ok) return `Error: ${res.status} — file not found or inaccessible at ${path}`
+  if (!res.ok) return `Error ${res.status}: file not found at "${path}"`
   const data = await res.json() as { content?: string; encoding?: string; message?: string }
   if (data.message) return `Error: ${data.message}`
   if (data.encoding === 'base64' && data.content) {
     const decoded = Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf-8')
-    // Cap at 6000 chars to avoid context overload
-    if (decoded.length > 6000) return decoded.slice(0, 6000) + '\n\n[...truncated at 6000 chars]'
-    return decoded
+    return decoded.length > 6000 ? decoded.slice(0, 6000) + '\n\n[...truncated at 6000 chars]' : decoded
   }
   return 'Error: unexpected response format'
 }
 
-async function execListRepoFiles(
-  owner: string,
-  repo: string,
-  path: string,
-  token: string,
-): Promise<string> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`
-  const res = await fetch(url, {
+async function execListRepoFiles(owner: string, repo: string, path: string, token: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
   })
-  if (!res.ok) return `Error: ${res.status} — directory not found at "${path}"`
+  if (!res.ok) return `Error ${res.status}: directory not found at "${path}"`
   const data = await res.json() as Array<{ name: string; type: string; size?: number }>
   if (!Array.isArray(data)) return 'Error: not a directory'
-  const lines = data.map(f => `${f.type === 'dir' ? '📁' : '📄'} ${f.name}${f.type === 'file' && f.size ? ` (${f.size}b)` : ''}`)
-  return lines.join('\n')
+  return data.map(f => `${f.type === 'dir' ? '📁' : '📄'} ${f.name}${f.size ? ` (${f.size}b)` : ''}`).join('\n')
 }
 
-async function execGetCIStatus(
-  owner: string,
-  repo: string,
-  branch: string | undefined,
-  token: string,
-): Promise<string> {
+async function execGetCIStatus(owner: string, repo: string, branch: string | undefined, token: string): Promise<string> {
   let url = `https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=5`
   if (branch) url += `&branch=${encodeURIComponent(branch)}`
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
-  })
-  if (!res.ok) return `Error: ${res.status} — could not fetch CI runs`
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } })
+  if (!res.ok) return `Error ${res.status}: could not fetch CI runs`
   const data = await res.json() as { workflow_runs?: Array<{ id: number; name: string; status: string; conclusion: string | null; head_branch: string; head_sha: string; created_at: string; html_url: string }> }
   const runs = data.workflow_runs ?? []
-  if (runs.length === 0) return 'No CI runs found.'
-  return runs.map(r => (
+  if (!runs.length) return 'No CI runs found.'
+  return runs.map(r =>
     `Run #${r.id}: ${r.name}\n  Branch: ${r.head_branch}\n  Status: ${r.status} / ${r.conclusion ?? 'in_progress'}\n  SHA: ${r.head_sha.slice(0, 7)}\n  At: ${r.created_at}\n  URL: ${r.html_url}`
-  )).join('\n\n')
+  ).join('\n\n')
 }
 
-async function execGetCIJobSteps(
-  owner: string,
-  repo: string,
-  runId: string,
-  token: string,
-): Promise<string> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/jobs`
-  const res = await fetch(url, {
+async function execGetCIJobSteps(owner: string, repo: string, runId: string, token: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/jobs`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
   })
-  if (!res.ok) return `Error: ${res.status} — could not fetch jobs for run ${runId}`
+  if (!res.ok) return `Error ${res.status}: could not fetch jobs for run ${runId}`
   const data = await res.json() as { jobs?: Array<{ id: number; name: string; status: string; conclusion: string | null; steps?: Array<{ name: string; status: string; conclusion: string | null; number: number }> }> }
   const jobs = data.jobs ?? []
-  if (jobs.length === 0) return 'No jobs found.'
+  if (!jobs.length) return 'No jobs found.'
   return jobs.map(j => {
     const steps = (j.steps ?? []).map(s => `    Step ${s.number}: ${s.name} — ${s.conclusion ?? s.status}`).join('\n')
     return `Job: ${j.name} [${j.conclusion ?? j.status}]\n${steps}`
   }).join('\n\n')
 }
 
+async function execSearchWeb(query: string): Promise<string> {
+  try {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+    if (!res.ok) return `Search error: HTTP ${res.status}`
+    const data = await res.json() as {
+      Abstract?: string
+      AbstractText?: string
+      AbstractURL?: string
+      Answer?: string
+      AnswerType?: string
+      RelatedTopics?: Array<{ Text?: string; FirstURL?: string; Topics?: Array<{ Text?: string; FirstURL?: string }> }>
+      Results?: Array<{ Text?: string; FirstURL?: string }>
+    }
+    const parts: string[] = []
+    if (data.Answer) parts.push(`**Direct Answer:** ${data.Answer}`)
+    if (data.AbstractText) parts.push(`**Summary:** ${data.AbstractText}\nSource: ${data.AbstractURL || ''}`)
+    const topics = (data.RelatedTopics ?? []).slice(0, 5)
+    if (topics.length > 0) {
+      parts.push('**Related:**')
+      for (const t of topics) {
+        if (t.Text && t.FirstURL) parts.push(`- ${t.Text.slice(0, 120)} → ${t.FirstURL}`)
+        else if (t.Topics) {
+          for (const sub of t.Topics.slice(0, 2)) {
+            if (sub.Text && sub.FirstURL) parts.push(`- ${sub.Text.slice(0, 120)} → ${sub.FirstURL}`)
+          }
+        }
+      }
+    }
+    if (parts.length === 0) return `No instant answers found for "${query}". Try fetch_url with a specific docs page.`
+    return parts.join('\n\n')
+  } catch (e) {
+    return `Search failed: ${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
+async function execFetchUrl(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CodeHive-Agent/1.0)' },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return `HTTP ${res.status}: could not fetch ${url}`
+    const ct = res.headers.get('content-type') ?? ''
+    if (!ct.includes('text') && !ct.includes('json')) return `Non-text content at ${url} (${ct})`
+    const text = await res.text()
+    // Strip HTML tags for readability
+    const stripped = text
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+    return stripped.length > 5000 ? stripped.slice(0, 5000) + '\n\n[...truncated]' : stripped
+  } catch (e) {
+    return `Fetch failed: ${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
 // ─── Tool dispatcher ──────────────────────────────────────────────────────────
 
 async function dispatchTool(
   toolName: string,
-  toolInput: Record<string, string>,
+  toolInput: Record<string, unknown>,
   ctx: ProjectContext,
   token: string,
+  actionDispatcher?: ActionDispatcher,
 ): Promise<string> {
   switch (toolName) {
     case 'read_repo_file':
-      return execReadRepoFile(ctx.repoOwner, ctx.repoName, toolInput.path, token)
+      return execReadRepoFile(ctx.repoOwner, ctx.repoName, String(toolInput.path ?? ''), token)
     case 'list_repo_files':
-      return execListRepoFiles(ctx.repoOwner, ctx.repoName, toolInput.path ?? '', token)
+      return execListRepoFiles(ctx.repoOwner, ctx.repoName, String(toolInput.path ?? ''), token)
     case 'get_ci_status':
-      return execGetCIStatus(ctx.repoOwner, ctx.repoName, toolInput.branch, token)
+      return execGetCIStatus(ctx.repoOwner, ctx.repoName, toolInput.branch ? String(toolInput.branch) : undefined, token)
     case 'get_ci_job_steps':
-      return execGetCIJobSteps(ctx.repoOwner, ctx.repoName, toolInput.run_id, token)
+      return execGetCIJobSteps(ctx.repoOwner, ctx.repoName, String(toolInput.run_id ?? ''), token)
+    case 'search_web':
+      return execSearchWeb(String(toolInput.query ?? ''))
+    case 'fetch_url':
+      return execFetchUrl(String(toolInput.url ?? ''))
+    case 'approve_plan':
+    case 'trigger_fix':
+    case 'trigger_codegen':
+    case 'trigger_sandbox':
+      if (actionDispatcher) {
+        return actionDispatcher(toolName, toolInput)
+      }
+      return `Action "${toolName}" is not available in this context.`
     default:
-      return `Error: unknown tool "${toolName}"`
+      return `Unknown tool: "${toolName}"`
   }
 }
 
-// ─── System prompt builder ────────────────────────────────────────────────────
+// ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(ctx: ProjectContext): string {
-  const latestPlan = ctx.plans[ctx.plans.length - 1]
-  const latestFix = ctx.fixAttempts[ctx.fixAttempts.length - 1]
-
-  const planSummary = latestPlan
-    ? `Status: ${latestPlan.status}${latestPlan.verdictScore ? ` (score ${latestPlan.verdictScore}/10)` : ''}`
+  const plan = ctx.latestPlan
+  const planSummary = plan
+    ? `Status: ${plan.status}${plan.reviewScore != null ? ` (score ${plan.reviewScore}/10)` : ''}${plan.prUrl ? ` | PR: ${plan.prUrl}` : ''}`
     : 'No plans yet'
 
-  const fixSummary = ctx.fixAttempts.length > 0
-    ? `${ctx.fixAttempts.length} fix attempt(s). Latest: ${latestFix?.status ?? 'unknown'} — ${latestFix?.errorSummary ?? 'no summary'}`
-    : 'No fix attempts'
+  const fixSummary =
+    ctx.fixAttempts.length > 0
+      ? `${ctx.fixAttempts.length} attempt(s). Latest: ${ctx.fixAttempts[0]?.status ?? 'unknown'} — ${ctx.fixAttempts[0]?.errorSummary ?? 'no summary'}`
+      : 'No fix attempts yet'
 
-  const planContext = latestPlan ? `
-## Latest Plan
-- Product Spec: ${latestPlan.productSpec?.slice(0, 800) ?? 'none'}
-- Architecture: ${latestPlan.architectureDesign?.slice(0, 800) ?? 'none'}
-- UI/UX: ${latestPlan.uiuxDesign?.slice(0, 400) ?? 'none'}
-- Reviewer: ${latestPlan.reviewerFeedback?.slice(0, 600) ?? 'none'}` : ''
+  const planContext = plan
+    ? `
+## Current Plan (ID: ${plan.id})
+- **Status:** ${plan.status}${plan.reviewScore != null ? ` | Score: ${plan.reviewScore}/10` : ''}
+${plan.verdictReason ? `- **Reviewer notes:** ${plan.verdictReason.slice(0, 400)}` : ''}
+${plan.productSpec ? `- **Product spec:** ${plan.productSpec.slice(0, 500)}` : ''}
+${plan.architectureDesign ? `- **Architecture:** ${plan.architectureDesign.slice(0, 500)}` : ''}
+${plan.reviewFeedback ? `- **Reviewer feedback:** ${plan.reviewFeedback.slice(0, 400)}` : ''}`
+    : ''
 
-  const fixContext = ctx.fixAttempts.length > 0 ? `
-## Fix History
-${ctx.fixAttempts.map(f => `- Attempt #${f.attemptNumber}: ${f.status} | ${f.errorCategory ?? 'unknown'} | confidence: ${f.confidence ?? '?'} | ${f.errorSummary ?? ''}`).join('\n')}` : ''
+  const fixContext =
+    ctx.fixAttempts.length > 0
+      ? `
+## Fix History (${ctx.fixAttempts.length} attempts)
+${ctx.fixAttempts
+  .slice(0, 5)
+  .map(
+    f =>
+      `- Attempt #${f.attemptNumber}: **${f.status}** | ${f.errorCategory ?? 'unknown error'} | confidence: ${f.confidence ?? '?'} | ${f.errorSummary ?? ''}`,
+  )
+  .join('\n')}`
+      : ''
 
-  return `You are the Project Manager Agent for "${ctx.projectName}" — a highly capable AI assistant embedded inside CodeHive AI.
+  return `You are the **Project Manager Agent** for "${ctx.projectName}" — a Tasklet-grade AI assistant embedded inside CodeHive AI.
 
-You have full context of this project and live tools to inspect the GitHub repo and CI pipeline.
+You have complete context of this project and live tools to inspect the GitHub repo, CI pipeline, the web, and take direct actions.
 
 ## Project
-- Name: ${ctx.projectName}
-- Repo: ${ctx.repoOwner}/${ctx.repoName}
-- Branch: ${ctx.repoBranch ?? 'main'}
+- **Name:** ${ctx.projectName}
+- **Repo:** ${ctx.repoOwner}/${ctx.repoName}${ctx.repoUrl ? ` (${ctx.repoUrl})` : ''}
+${ctx.projectDescription ? `- **Description:** ${ctx.projectDescription}` : ''}
 
 ## Current State
-- Plans: ${planSummary}
-- Fixes: ${fixSummary}
+- **Plan:** ${planSummary}
+- **Fixes:** ${fixSummary}
 ${planContext}
 ${fixContext}
 
-## Your capabilities
-You have 4 live tools:
-1. read_repo_file — read any file in the repo
-2. list_repo_files — list directory contents
-3. get_ci_status — check latest CI runs (optionally by branch)
-4. get_ci_job_steps — drill into a specific run's job steps to find failures
+## Your Tools (10 total)
+**Repo:** read_repo_file, list_repo_files
+**CI:** get_ci_status, get_ci_job_steps
+**Web:** search_web (DuckDuckGo), fetch_url (any URL)
+**Actions:** approve_plan, trigger_fix, trigger_codegen, trigger_sandbox
 
 ## How to behave
-- Be direct and specific — cite file names, line numbers, test names when you know them
-- Use tools proactively to give accurate answers (don't guess if you can check)
-- When diagnosing failures: check CI → drill into failed job → read the relevant source file
-- Suggest concrete next steps the developer can take
-- Format responses with markdown — use headers, code blocks, bullet points
-- Be honest about uncertainty — say when you need to check something
-- You are compared to Tasklet (the parent AI) — match its quality: thorough, tool-driven, concise
-
-When asked for a "briefing", always:
-1. Check CI status first
-2. Read package.json to understand the tech stack
-3. Summarize: plan status, CI health, fix history, recommended next action`
+- Be direct, specific, and tool-driven — don't guess when you can check
+- **For debugging:** check CI status → drill into failed job steps → read the failing source file → search web for the error if needed
+- **For approvals/triggers:** confirm the user's intent, then use the action tool
+- Cite file names, test names, line numbers, error messages when relevant
+- Format with markdown — headers, code blocks, bullet points
+- When asked for a "briefing": check CI status first, read package.json, then summarize plan + CI health + fix history + recommended next action
+- You are compared to Tasklet (the parent AI) — match its quality: thorough, honest, concise`
 }
 
 // ─── Main agentic loop ────────────────────────────────────────────────────────
 
 export async function runProjectChat(
+  messages: ChatMessage[],
   ctx: ProjectContext,
-  history: ChatMessage[],
-  userMessage: string,
-  emit: SSEEmit,
+  githubToken: string,
+  anthropicKey: string,
+  send: Send,
+  actionDispatcher?: ActionDispatcher,
 ): Promise<void> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  const githubToken = process.env.GITHUB_TOKEN
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
-  if (!githubToken) throw new Error('GITHUB_TOKEN not configured')
+  if (!anthropicKey) {
+    await send({ type: 'error', message: 'ANTHROPIC_API_KEY not configured' })
+    return
+  }
+  if (!githubToken) {
+    await send({ type: 'error', message: 'GITHUB_TOKEN not configured' })
+    return
+  }
 
   const systemPrompt = buildSystemPrompt(ctx)
 
-  // Build message history for Anthropic
-  const messages: Array<{ role: string; content: unknown }> = [
-    ...history.map(m => ({ role: m.role, content: m.content })),
-    { role: 'user', content: userMessage },
-  ]
+  // Build Anthropic messages array from history
+  const anthropicMessages: Array<{ role: string; content: unknown }> = messages.map(m => ({
+    role: m.role,
+    content: m.content,
+  }))
 
   let loopCount = 0
-  const MAX_LOOPS = 8
+  const MAX_LOOPS = 10
 
   while (loopCount < MAX_LOOPS) {
     loopCount++
-
     const isLastLoop = loopCount === MAX_LOOPS
 
-    // Non-streaming request for tool use turns, streaming only on final response
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': apiKey,
+        'x-api-key': anthropicKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         system: systemPrompt,
-        messages,
-        tools: isLastLoop ? [] : TOOLS,  // No tools on last loop — force text response
-        max_tokens: 4000,
+        messages: anthropicMessages,
+        tools: isLastLoop ? [] : TOOLS,
+        max_tokens: 4096,
         stream: false,
       }),
     })
 
     if (!res.ok) {
       const err = await res.text()
-      emit('error', { message: `Anthropic API error ${res.status}: ${err}` })
+      await send({ type: 'error', message: `Anthropic API error ${res.status}: ${err.slice(0, 200)}` })
       return
     }
 
-    const responseBody = await res.json() as {
-      id: string
+    const body = await res.json() as {
       stop_reason: string
       content: Array<{
         type: string
         text?: string
         id?: string
         name?: string
-        input?: Record<string, string>
+        input?: Record<string, unknown>
       }>
     }
 
-    const { stop_reason, content } = responseBody
-
-    // Collect text blocks and tool use blocks
+    const { stop_reason, content } = body
     const textBlocks = content.filter(b => b.type === 'text')
-    const toolUseBlocks = content.filter(b => b.type === 'tool_use')
+    const toolBlocks = content.filter(b => b.type === 'tool_use')
 
-    // If there's text content, stream it out as deltas
+    // Stream text in chunks
+    let fullText = ''
     for (const block of textBlocks) {
       if (block.text) {
-        // Emit as character chunks for streaming feel
-        const chunkSize = 8
+        fullText += block.text
+        // Emit in chunks for streaming feel
+        const chunkSize = 12
         for (let i = 0; i < block.text.length; i += chunkSize) {
-          emit('text_delta', { text: block.text.slice(i, i + chunkSize) })
-          // Small artificial delay removed — CF Workers handles timing
+          await send({ type: 'chunk', text: block.text.slice(i, i + chunkSize) })
         }
       }
     }
 
-    // If stop reason is end_turn or no tools, we're done
-    if (stop_reason === 'end_turn' || toolUseBlocks.length === 0) {
-      emit('done', {})
+    // If no tool calls or end_turn, we're done
+    if (stop_reason === 'end_turn' || toolBlocks.length === 0) {
+      await send({ type: 'done', fullText })
       return
     }
 
-    // Execute all tool calls
+    // Execute tool calls
     const toolResults: Array<{ type: string; tool_use_id: string; content: string }> = []
 
-    for (const toolBlock of toolUseBlocks) {
+    for (const toolBlock of toolBlocks) {
       const toolName = toolBlock.name!
-      const toolInput = toolBlock.input ?? {}
+      const toolInput = (toolBlock.input ?? {}) as Record<string, unknown>
       const toolUseId = toolBlock.id!
 
-      // Emit tool_call event so UI can show what we're doing
-      emit('tool_call', {
-        id: toolUseId,
-        name: toolName,
-        input: toolInput,
-      })
+      // Notify UI: tool starting
+      await send({ type: 'tool_start', toolId: toolUseId, tool: toolName, input: toolInput })
 
-      // Execute the tool
       let result: string
       try {
-        result = await dispatchTool(toolName, toolInput, ctx, githubToken)
+        result = await dispatchTool(toolName, toolInput, ctx, githubToken, actionDispatcher)
       } catch (e) {
-        result = `Error executing tool: ${e instanceof Error ? e.message : String(e)}`
+        result = `Tool error: ${e instanceof Error ? e.message : String(e)}`
       }
 
-      // Emit tool_result event
-      emit('tool_result', {
-        id: toolUseId,
-        name: toolName,
-        result: result.slice(0, 2000), // Cap display
-      })
+      // Notify UI: tool result
+      await send({ type: 'tool_result', toolId: toolUseId, tool: toolName, output: result.slice(0, 2000) })
 
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: toolUseId,
-        content: result,
-      })
+      toolResults.push({ type: 'tool_result', tool_use_id: toolUseId, content: result })
     }
 
-    // Add assistant message + tool results to history for next loop
-    messages.push({ role: 'assistant', content })
-    messages.push({ role: 'user', content: toolResults })
+    // Continue loop with tool results
+    anthropicMessages.push({ role: 'assistant', content })
+    anthropicMessages.push({ role: 'user', content: toolResults })
   }
 
-  emit('error', { message: 'Agent reached max loop limit without completing.' })
+  await send({ type: 'error', message: 'Agent reached max loop limit.' })
 }

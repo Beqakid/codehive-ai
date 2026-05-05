@@ -5,6 +5,7 @@ import {
   runProjectChat,
   type ProjectContext,
   type ChatMessage,
+  type ActionDispatcher,
 } from '@/agents/projectChatAgent'
 
 export const dynamic = 'force-dynamic'
@@ -119,7 +120,6 @@ export async function POST(
               uiuxDesign: extractMarkdown(plan.uiuxDesign),
             }
 
-            // Load fix attempts
             const faRes = await payload.find({
               collection: 'fix-attempts',
               where: { agentPlan: { equals: plan.id } },
@@ -141,7 +141,7 @@ export async function POST(
           }
         }
       } catch {
-        // silently ignore — agent can still respond with whatever context it has
+        // silently ignore — agent can still respond with partial context
       }
 
       const ctx: ProjectContext = {
@@ -155,7 +155,73 @@ export async function POST(
         fixAttempts,
       }
 
-      await runProjectChat(messages, ctx, githubToken, anthropicKey, send)
+      // ── Action dispatcher ──────────────────────────────────────────────────
+      const actionDispatcher: ActionDispatcher = async (action, params) => {
+        if (action === 'approve_plan') {
+          const planId = (params.plan_id as number) || latestPlan?.id
+          if (!planId) return 'No plan available to approve.'
+          try {
+            await payload.update({
+              collection: 'agent-plans',
+              id: planId,
+              data: { status: 'approved' },
+              overrideAccess: true,
+            })
+            await send({
+              type: 'action',
+              action: 'plan_approved',
+              planId,
+              label: '✅ Plan approved',
+              detail: `Plan #${planId} is now approved. You can run Codegen below.`,
+            })
+            return `Plan #${planId} approved successfully. Codegen is now unblocked.`
+          } catch (e) {
+            return `Failed to approve plan: ${e instanceof Error ? e.message : String(e)}`
+          }
+        }
+
+        if (action === 'trigger_fix') {
+          const planId = latestPlan?.id
+          await send({
+            type: 'action',
+            action: 'trigger_fix',
+            planId,
+            label: '🔧 Fix loop queued',
+            detail: `${params.note || 'The automated fix loop will retry the failing tests.'} Click "Run Fix" below.`,
+          })
+          return 'Fix loop action sent to UI. The user can click "Run Fix" in the Fix Runner section.'
+        }
+
+        if (action === 'trigger_codegen') {
+          const planId = latestPlan?.id
+          const prUrl = latestPlan?.prUrl
+          await send({
+            type: 'action',
+            action: 'trigger_codegen',
+            planId,
+            prUrl,
+            label: '💻 Codegen queued',
+            detail: `${params.note || 'Code generation will run against the approved plan.'} Click "Run Codegen" below.`,
+          })
+          return 'Codegen action sent to UI. The user can click "Run Codegen" in the AI Runners section.'
+        }
+
+        if (action === 'trigger_sandbox') {
+          const planId = latestPlan?.id
+          await send({
+            type: 'action',
+            action: 'trigger_sandbox',
+            planId,
+            label: '🧪 Sandbox queued',
+            detail: `${params.note || 'The sandbox test runner will execute tests on the current branch.'} Click "Run Sandbox" below.`,
+          })
+          return 'Sandbox action sent to UI. The user can click "Run Sandbox" in the AI Runners section.'
+        }
+
+        return `Unknown action: ${action}`
+      }
+
+      await runProjectChat(messages, ctx, githubToken, anthropicKey, send, actionDispatcher)
     } catch (err) {
       await send({ type: 'error', message: String(err) })
     } finally {
