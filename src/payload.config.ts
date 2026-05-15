@@ -21,6 +21,8 @@ import { Runs } from './collections/Runs'
 import { FixAttempts } from './collections/FixAttempts'
 import { ProjectMemory } from './collections/ProjectMemory'
 import { LessonsLearned } from './collections/LessonsLearned'
+import { RepoIntelligence } from './collections/RepoIntelligence'
+import { RunRiskReports } from './collections/RunRiskReports'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -75,6 +77,8 @@ export default buildConfig({
     FixAttempts,
     ProjectMemory,
     LessonsLearned,
+    RepoIntelligence,   // ← Milestone 2 addition
+    RunRiskReports,     // ← Milestone 2 addition
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

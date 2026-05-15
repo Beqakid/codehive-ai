@@ -1,13 +1,19 @@
 /**
  * POST /api/m1/plan
  *
- * Milestone 1 SSE pipeline. Accepts a project ID + user request.
+ * Milestone 1 + 2 SSE pipeline. Accepts a project ID + user request.
  * Streams log events to the client while:
- *  1. Validating GitHub access
- *  2. Fetching repo metadata + file tree + key files
- *  3. Running the planning agent (AI, no code gen)
- *  4. Saving the plan to D1
- *  5. Creating a branch + PR in the target repo (docs-only)
+ *  M1: 1. Validates GitHub access
+ *       2. Fetches repo metadata + file tree + key files
+ *       3. Runs the planning agent (AI, no code gen)
+ *       4. Saves the plan to D1
+ *       5. Creates a branch + PR in the target repo (docs-only)
+ *  M2: 1a. Runs repo intelligence scanner
+ *       2a. Extracts dependency graph
+ *       3a. Classifies protected files
+ *       4a. Runs risk scoring engine
+ *       5a. Enriches planner with M2 context
+ *       6a. Saves risk report to D1
  *
  * Every log event is also persisted to the agent-logs collection.
  * DO NOT add `export const runtime = 'edge'` — this route uses Node.js APIs.
@@ -28,6 +34,12 @@ import {
   createPullRequest,
 } from '../../../../../lib/github'
 import { runPlannerAgent } from '../../../../../agents/plannerAgent'
+import { FEATURE_FLAGS } from '../../../../../lib/featureFlags'
+import { analyzeRepository, findCentralFiles } from '../../../../../lib/repoIntelligence'
+import { classifyProtectedFiles, buildProtectedFileWarning } from '../../../../../lib/protectedFiles'
+import { calculateRisk, formatRiskSummary } from '../../../../../lib/riskEngine'
+import { transition } from '../../../../../lib/runStateMachine'
+import type { RunState } from '../../../../../lib/runStateMachine'
 
 interface RequestBody {
   projectId: string
@@ -58,6 +70,18 @@ export const POST = async (req: Request): Promise<Response> => {
   ;(async () => {
     const payload = await getPayload({ config })
     let runId: string | null = null
+    let runState: RunState = 'queued'
+
+    const updateState = (event: Parameters<typeof transition>[1]) => {
+      if (FEATURE_FLAGS.M2_STATE_MACHINE) {
+        try {
+          runState = transition(runState, event)
+          send({ type: 'state_change', state: runState })
+        } catch {
+          // Non-fatal — state machine errors don't block pipeline
+        }
+      }
+    }
 
     try {
       const body = (await req.json()) as RequestBody
@@ -78,10 +102,12 @@ export const POST = async (req: Request): Promise<Response> => {
         type: 'log',
         level: 'info',
         event: 'init',
-        message: '🐝 CodeHive Milestone 1 — Planning pipeline started',
+        message: '🐝 CodeHive Planning Pipeline started',
       })
 
-      // ── Resolve project ────────────────────────────────────────────────────
+      updateState('START')
+
+      // ── Resolve project ──────────────────────────────────────────────────
       const project = (await payload.findByID({
         collection: 'projects',
         id: projectId,
@@ -101,7 +127,6 @@ export const POST = async (req: Request): Promise<Response> => {
         return
       }
 
-      // Determine owner/repo: prefer explicit body params → project fields → parse repoUrl
       let owner = body.repoOwner || project.repoOwner || ''
       let repo = body.repoName || project.repoName || ''
 
@@ -130,20 +155,20 @@ export const POST = async (req: Request): Promise<Response> => {
         message: `📁 Project: "${project.name}" → ${owner}/${repo}`,
       })
 
-      // ── Create coding_request ──────────────────────────────────────────────
+      // ── Create coding_request ────────────────────────────────────────────
       const codingRequest = await payload.create({
         collection: 'coding-requests',
         data: {
           title: userRequest.slice(0, 100),
           description: userRequest,
           project: projectId,
-          requestedBy: '1', // system placeholder — real auth not required here
+          requestedBy: '1',
           status: 'planning',
         },
         overrideAccess: true,
       })
 
-      // ── Create agent_run ───────────────────────────────────────────────────
+      // ── Create agent_run ─────────────────────────────────────────────────
       const startedAt = Date.now()
       const agentRun = await payload.create({
         collection: 'agent-runs',
@@ -151,7 +176,7 @@ export const POST = async (req: Request): Promise<Response> => {
           agentName: 'planner',
           runType: 'planning',
           codingRequest: String(codingRequest.id),
-          status: 'running',
+          status: FEATURE_FLAGS.M2_STATE_MACHINE ? 'starting' : 'running',
           input: { userRequest, owner, repo },
         },
         overrideAccess: true,
@@ -164,7 +189,9 @@ export const POST = async (req: Request): Promise<Response> => {
         message: `🚀 Agent run #${runId} created`,
       })
 
-      // Helpers —— persist each log to D1 and send SSE simultaneously
+      updateState('START')
+
+      // Helpers — persist each log to D1 and send SSE simultaneously
       const logToDb = async (
         event: string,
         message: string,
@@ -184,7 +211,7 @@ export const POST = async (req: Request): Promise<Response> => {
             overrideAccess: true,
           })
         } catch {
-          // Non-fatal — log persistence should not block the pipeline
+          // Non-fatal
         }
       }
 
@@ -198,7 +225,24 @@ export const POST = async (req: Request): Promise<Response> => {
         await logToDb(event, message, level, metadata)
       }
 
-      // ── Step 1: Validate GitHub access ─────────────────────────────────────
+      // Update run state in DB
+      const updateRunState = async (status: string) => {
+        if (FEATURE_FLAGS.M2_STATE_MACHINE) {
+          try {
+            await payload.update({
+              collection: 'agent-runs',
+              id: runId!,
+              data: { status },
+              overrideAccess: true,
+            })
+          } catch {
+            // Non-fatal
+          }
+        }
+      }
+
+      // ── Step 1: Validate GitHub access ───────────────────────────────────
+      await updateRunState('analyzing_repo')
       await log('🔍 Validating GitHub repository access...', 'info', 'repo_access_check')
       const hasAccess = await validateRepoAccess(owner, repo)
       if (!hasAccess) {
@@ -214,12 +258,13 @@ export const POST = async (req: Request): Promise<Response> => {
           data: { status: 'failed', errorMessage: 'Repository access denied' },
           overrideAccess: true,
         })
+        updateState('ERROR')
         writer.close()
         return
       }
       await log(`✅ Repository access confirmed: ${owner}/${repo}`, 'success', 'repo_access_ok')
 
-      // ── Step 2: Fetch repo metadata ────────────────────────────────────────
+      // ── Step 2: Fetch repo metadata ──────────────────────────────────────
       await log('📊 Fetching repository metadata...', 'info', 'repo_metadata_fetch')
       const repoMetadata = await fetchRepoMetadata(owner, repo)
       await log(
@@ -229,13 +274,13 @@ export const POST = async (req: Request): Promise<Response> => {
         { repoMetadata },
       )
 
-      // ── Step 3: Fetch file tree ────────────────────────────────────────────
+      // ── Step 3: Fetch file tree ──────────────────────────────────────────
       await log('🌳 Fetching repository file tree...', 'info', 'file_tree_fetch')
-      const { tree, formatted: fileTree, truncated } = await fetchFileTree(
-        owner,
-        repo,
-        repoMetadata.defaultBranch,
-      )
+      const {
+        tree,
+        formatted: fileTree,
+        truncated,
+      } = await fetchFileTree(owner, repo, repoMetadata.defaultBranch)
       const blobCount = tree.filter((t) => t.type === 'blob').length
       await log(
         `✅ File tree fetched: ${blobCount} files${truncated ? ' (tree was truncated at 300 entries)' : ''}`,
@@ -243,7 +288,7 @@ export const POST = async (req: Request): Promise<Response> => {
         'file_tree_ok',
       )
 
-      // ── Step 4: Read key files ─────────────────────────────────────────────
+      // ── Step 4: Read key files ───────────────────────────────────────────
       await log('📄 Reading key source files...', 'info', 'key_files_fetch')
       const keyFiles = await fetchKeyFiles(owner, repo, repoMetadata.defaultBranch)
       await log(
@@ -252,8 +297,151 @@ export const POST = async (req: Request): Promise<Response> => {
         'key_files_ok',
       )
 
-      // ── Step 5: Run planning agent ─────────────────────────────────────────
+      updateState('REPO_ANALYZED')
+
+      // ── M2 Step 5: Repository intelligence scan ──────────────────────────
+      let repoIntelligence = undefined
+      if (FEATURE_FLAGS.M2_REPO_INTELLIGENCE) {
+        await log('🔬 Running repository intelligence scan...', 'info', 'repo_scan_started')
+        await updateRunState('building_graph')
+
+        try {
+          repoIntelligence = analyzeRepository(owner, repo, tree, keyFiles)
+          const centralFiles = findCentralFiles(repoIntelligence.dependencyEdges)
+
+          await log(
+            `✅ Intelligence scan complete: ${repoIntelligence.techStack.join(', ') || 'Unknown stack'} · ${repoIntelligence.envVarsDetected.length} env vars · ${centralFiles.length} central files`,
+            'success',
+            'repo_scan_completed',
+            {
+              techStack: repoIntelligence.techStack,
+              authSystem: repoIntelligence.authSystem,
+              routeCount: repoIntelligence.routeStructure.length,
+              centralFiles: centralFiles.slice(0, 5).map((f) => f.filePath),
+            },
+          )
+
+          // Save to D1
+          try {
+            await payload.create({
+              collection: 'repo-intelligence',
+              data: {
+                projectId,
+                owner,
+                repo,
+                frameworkSummary: repoIntelligence.frameworkSummary,
+                architectureSummary: repoIntelligence.architectureSummary,
+                techStack: repoIntelligence.techStack,
+                importantFiles: repoIntelligence.importantFiles,
+                protectedAreas: repoIntelligence.protectedAreas,
+                envVarsDetected: repoIntelligence.envVarsDetected,
+                routeStructure: repoIntelligence.routeStructure,
+                authSystem: repoIntelligence.authSystem ?? null,
+                lastIndexedAt: new Date(repoIntelligence.lastIndexedAt).toISOString(),
+              },
+              overrideAccess: true,
+            })
+          } catch {
+            // Non-fatal — intelligence saves shouldn't block the pipeline
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await log(`⚠️ Intelligence scan warning: ${msg}`, 'warn', 'repo_scan_warn')
+          // Continue without intelligence
+        }
+      }
+
+      updateState('GRAPH_BUILT')
+
+      // ── M2 Step 6: Protected file detection ─────────────────────────────
+      let protectedFiles: ReturnType<typeof classifyProtectedFiles> = []
+      if (FEATURE_FLAGS.M2_PROTECTED_FILES && repoIntelligence) {
+        await log('🛡️ Detecting protected files...', 'info', 'protected_file_detection')
+        const allPaths = repoIntelligence.fileMap.map((f) => f.filePath)
+        protectedFiles = classifyProtectedFiles(allPaths)
+
+        if (protectedFiles.length > 0) {
+          const critical = protectedFiles.filter((f) => f.riskLevel === 'CRITICAL').length
+          const high = protectedFiles.filter((f) => f.riskLevel === 'HIGH').length
+          await log(
+            `⚠️ Protected files detected: ${protectedFiles.length} total (${critical} CRITICAL, ${high} HIGH)`,
+            'warn',
+            'protected_file_detected',
+            { protectedFiles: protectedFiles.slice(0, 10) },
+          )
+        } else {
+          await log('✅ No protected files detected', 'success', 'protected_file_detection')
+        }
+      }
+
+      // ── M2 Step 7: Risk analysis ─────────────────────────────────────────
+      let riskReport = undefined
+      if (FEATURE_FLAGS.M2_RISK_ENGINE && repoIntelligence) {
+        await log('📊 Running risk analysis...', 'info', 'risk_analysis_started')
+        await updateRunState('risk_analysis')
+
+        try {
+          // Use planner output for affected files (we'll use repo-level protected files for now)
+          riskReport = calculateRisk({
+            runId: runId!,
+            projectId,
+            affectedFiles: repoIntelligence.importantFiles.slice(0, 20),
+            protectedFilesTouched: protectedFiles,
+            dependencyEdges: repoIntelligence.dependencyEdges,
+            repoIntelligence,
+          })
+
+          await log(
+            `✅ Risk analysis complete: ${formatRiskSummary(riskReport)}`,
+            riskReport.riskLevel === 'CRITICAL' || riskReport.riskLevel === 'HIGH' ? 'warn' : 'success',
+            'risk_analysis_completed',
+            {
+              riskLevel: riskReport.riskLevel,
+              riskScore: riskReport.riskScore,
+              confidenceScore: riskReport.confidenceScore,
+            },
+          )
+
+          send({
+            type: 'risk_report',
+            riskLevel: riskReport.riskLevel,
+            riskScore: riskReport.riskScore,
+            runId,
+          })
+
+          // Save risk report to D1
+          try {
+            await payload.create({
+              collection: 'run-risk-reports',
+              data: {
+                runId: runId!,
+                projectId,
+                riskLevel: riskReport.riskLevel,
+                riskScore: riskReport.riskScore,
+                confidenceScore: riskReport.confidenceScore,
+                affectedFiles: riskReport.affectedFiles,
+                protectedFilesTouched: riskReport.protectedFilesTouched.map((f) => f.path),
+                rollbackComplexity: riskReport.rollbackComplexity,
+                implementationScope: riskReport.implementationScope,
+                recommendations: riskReport.recommendations,
+              },
+              overrideAccess: true,
+            })
+          } catch {
+            // Non-fatal
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await log(`⚠️ Risk analysis warning: ${msg}`, 'warn', 'risk_analysis_warn')
+        }
+      }
+
+      updateState('RISK_ASSESSED')
+
+      // ── Step 8: Run planning agent ───────────────────────────────────────
       await log('🧠 Starting AI planning agent...', 'info', 'planner_start')
+      await updateRunState('planning')
+
       const planResult = await runPlannerAgent({
         userRequest,
         repoOwner: owner,
@@ -265,10 +453,18 @@ export const POST = async (req: Request): Promise<Response> => {
           send({ type: 'log', level, event: 'planner', message, runId })
           void logToDb('planner', message, level)
         },
+        // M2 enrichment
+        ...(FEATURE_FLAGS.M2_ENRICHED_PLANNER ? {
+          repoIntelligence,
+          riskReport,
+          protectedFiles: protectedFiles.length > 0 ? protectedFiles : undefined,
+        } : {}),
       })
-      await log(`✅ Plan generated: "${planResult.title}"`, 'success', 'plan_generated')
+      await log(`✅ Plan generated: "${planResult.title}"`, 'success', 'plan_generation_completed')
 
-      // ── Step 6: Save plan to D1 ────────────────────────────────────────────
+      updateState('PLAN_GENERATED')
+
+      // ── Step 9: Save plan to D1 ──────────────────────────────────────────
       await payload.update({
         collection: 'agent-runs',
         id: runId,
@@ -279,23 +475,26 @@ export const POST = async (req: Request): Promise<Response> => {
             affectedFiles: planResult.affectedFiles,
             riskLevel: planResult.riskLevel,
             estimatedHours: planResult.estimatedHours,
+            notRecommendedFiles: planResult.notRecommendedFiles,
+            safeBoundaries: planResult.safeBoundaries,
           },
         },
         overrideAccess: true,
       })
       await log('💾 Plan saved to database', 'success', 'plan_saved')
 
-      // ── Step 7: Create GitHub branch ───────────────────────────────────────
+      // ── Step 10: Create GitHub branch ────────────────────────────────────
       const branchName = `codehive/plan-${runId}`
       let prUrl = ''
 
       await log(`🌿 Creating branch: ${branchName}`, 'info', 'branch_create')
+      await updateRunState('creating_pr')
+
       try {
         const { sha } = await getDefaultBranchSha(owner, repo)
         await createBranch(owner, repo, branchName, sha)
         await log(`✅ Branch created: ${branchName}`, 'success', 'branch_ok')
 
-        // ── Step 8: Commit plan markdown ───────────────────────────────────
         const planFilePath = `.codehive/plans/${runId}.md`
         await log(`📤 Committing plan to ${planFilePath}...`, 'info', 'plan_commit')
         await createOrUpdateFile(
@@ -306,9 +505,12 @@ export const POST = async (req: Request): Promise<Response> => {
           branchName,
           `docs: CodeHive Plan — ${planResult.title}`,
         )
-        await log('✅ Plan file committed (documentation only — no source changes)', 'success', 'plan_committed')
+        await log(
+          '✅ Plan file committed (documentation only — no source changes)',
+          'success',
+          'plan_committed',
+        )
 
-        // ── Step 9: Open Pull Request ──────────────────────────────────────
         await log('🔀 Opening GitHub Pull Request...', 'info', 'pr_create')
         prUrl = await createPullRequest(
           owner,
@@ -326,10 +528,11 @@ export const POST = async (req: Request): Promise<Response> => {
           'warn',
           'github_warn',
         )
-        // Non-fatal — plan is already persisted
       }
 
-      // ── Finalise run ───────────────────────────────────────────────────────
+      updateState('PR_CREATED')
+
+      // ── Finalise run ─────────────────────────────────────────────────────
       await payload.update({
         collection: 'agent-runs',
         id: runId,
@@ -343,7 +546,7 @@ export const POST = async (req: Request): Promise<Response> => {
       })
 
       await log(
-        '🎉 Milestone 1 complete — plan created, branch opened, NO source code modified.',
+        '🎉 Planning pipeline complete — plan created, branch opened, NO source code modified.',
         'success',
         'pipeline_complete',
       )
@@ -354,7 +557,9 @@ export const POST = async (req: Request): Promise<Response> => {
         prUrl,
         branchName,
         planTitle: planResult.title,
-        message: 'Milestone 1 planning pipeline complete',
+        riskLevel: riskReport?.riskLevel ?? null,
+        riskScore: riskReport?.riskScore ?? null,
+        message: 'Planning pipeline complete',
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
