@@ -14,12 +14,15 @@ import { Projects } from './collections/Projects'
 import { CodingRequests } from './collections/CodingRequests'
 import { AgentPlans } from './collections/AgentPlans'
 import { AgentRuns } from './collections/AgentRuns'
+import { AgentLogs } from './collections/AgentLogs'
 import { ToolConnections } from './collections/ToolConnections'
 import { Commands } from './collections/Commands'
 import { Runs } from './collections/Runs'
 import { FixAttempts } from './collections/FixAttempts'
 import { ProjectMemory } from './collections/ProjectMemory'
 import { LessonsLearned } from './collections/LessonsLearned'
+import { RepoIntelligence } from './collections/RepoIntelligence'
+import { RunRiskReports } from './collections/RunRiskReports'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -67,12 +70,15 @@ export default buildConfig({
     CodingRequests,
     AgentPlans,
     AgentRuns,
+    AgentLogs,       // ← Milestone 1 addition
     ToolConnections,
     Commands,
     Runs,
     FixAttempts,
     ProjectMemory,
     LessonsLearned,
+    RepoIntelligence,   // ← Milestone 2 addition
+    RunRiskReports,     // ← Milestone 2 addition
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
