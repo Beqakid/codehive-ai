@@ -81,7 +81,7 @@ function checkRiskLevel(riskReport: RiskReport | null): ReviewGateCheck {
 
 function checkProtectedFiles(protectedFiles: ProtectedFile[], patches: PatchFile[]): ReviewGateCheck {
   const patchPaths = new Set(patches.map((p) => p.filePath))
-  const touchedProtected = protectedFiles.filter((pf) => patchPaths.has(pf.filePath))
+  const touchedProtected = protectedFiles.filter((pf) => patchPaths.has(pf.path))
 
   if (touchedProtected.length === 0) {
     return {
@@ -103,7 +103,7 @@ function checkProtectedFiles(protectedFiles: ProtectedFile[], patches: PatchFile
       gateId: 'protected_files',
       name: 'Protected Files Gate',
       decision: 'blocked',
-      reason: `Critical protected files modified: ${touchedProtected.map((p) => p.filePath).join(', ')}`,
+      reason: `Critical protected files modified: ${touchedProtected.map((p) => p.path).join(', ')}`,
       details: 'Auth, payment, or migration files require manual implementation',
     }
   }
@@ -113,7 +113,7 @@ function checkProtectedFiles(protectedFiles: ProtectedFile[], patches: PatchFile
       gateId: 'protected_files',
       name: 'Protected Files Gate',
       decision: 'approval_required',
-      reason: `Deployment config modified: ${touchedProtected.map((p) => p.filePath).join(', ')}`,
+      reason: `Deployment config modified: ${touchedProtected.map((p) => p.path).join(', ')}`,
     }
   }
 
@@ -122,7 +122,7 @@ function checkProtectedFiles(protectedFiles: ProtectedFile[], patches: PatchFile
     name: 'Protected Files Gate',
     decision: 'confirmation_required',
     reason: `${touchedProtected.length} protected file(s) modified`,
-    details: touchedProtected.map((p) => `${p.filePath} (${p.protectionType})`).join(', '),
+    details: touchedProtected.map((p) => `${p.path} (${p.protectionType})`).join(', '),
   }
 }
 

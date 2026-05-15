@@ -2,7 +2,7 @@
  * POST /api/m3/generate-patch
  *
  * Milestone 3 — Controlled code generation endpoint.
- * Runs the full M3 pipeline: intelligence → risk → scope → patch → validate → review gates.
+ * Runs the full M3 pipeline: scope → protected files → validate → diff → review gates.
  * Returns structured results with diffs, validation, and review gate decisions.
  *
  * This does NOT write to the repo directly. It generates patches + diffs for review.
@@ -16,7 +16,6 @@ import { validatePatchSet } from '../../../../../lib/patchValidator'
 import { createDefaultScope, checkFilesScope } from '../../../../../lib/editScopeManager'
 import { evaluateReviewGates } from '../../../../../lib/reviewGates'
 import { classifyProtectedFiles } from '../../../../../lib/protectedFiles'
-import { calculateRisk, type RiskEngineInput } from '../../../../../lib/riskEngine'
 
 interface RequestBody {
   projectId: string
@@ -68,34 +67,52 @@ export const POST = async (req: Request): Promise<Response> => {
       ? validatePatchSet(patches, undefined, scopeCheck.results)
       : { valid: true, issues: [], errors: [], warnings: [], summary: 'Validation skipped' }
 
-    // 4. Generate diffs (even if validation has warnings — only block on errors)
+    // 4. Generate diffs
     const diffResult = validateAndDiffPatches(
       patches, existingFiles,
-      protectedFiles.map((p) => p.filePath),
+      protectedFiles.map((p) => p.path),
     )
 
-    // 5. Risk analysis
-    const riskInput: RiskEngineInput = {
-      affectedFiles: filePaths,
-      protectedFiles,
-      dependencyEdges: [],
-      centralFiles: [],
-      planMarkdown: `Patch run ${runId}: ${patches.length} file(s)`,
+    // 5. Simple risk assessment based on protected files + change size
+    // (Full M2 riskEngine requires repoIntelligence which isn't available at patch generation time)
+    const hasProtected = protectedFiles.length > 0
+    const isLargeChange = diffResult.metadata.totalLinesChanged > 300 || patches.length > 5
+    const riskLevel = hasProtected ? 'HIGH' : isLargeChange ? 'MEDIUM' : 'LOW'
+    const riskScore = hasProtected ? 70 : isLargeChange ? 40 : 10
+    const simpleRiskReport = {
+      riskLevel: riskLevel as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
+      riskScore,
+      totalScore: riskScore,
+      rollbackComplexity: hasProtected ? 'medium' as const : 'low' as const,
+      protectedFilesTouched: protectedFiles,
+      factors: [] as { name: string; triggered: boolean; weight: number; reason: string }[],
+      recommendations: [] as string[],
     }
-    const riskReport = FEATURE_FLAGS.M2_RISK_ENGINE ? calculateRisk(riskInput) : null
 
     // 6. Review gates
     const reviewGateResult = FEATURE_FLAGS.M3_REVIEW_GATES
       ? evaluateReviewGates({
         patches,
-        riskReport,
+        riskReport: simpleRiskReport,
         protectedFiles,
         totalLinesChanged: diffResult.metadata.totalLinesChanged,
         affectedFileCount: patches.length,
       })
       : { overallDecision: 'auto_approve' as const, checks: [], canProceed: true, requiresHumanApproval: false, blockReasons: [], warnings: [], summary: 'Review gates disabled' }
 
-    // 7. Persist to D1
+    // 7. Generate rollback plan
+    const rollbackPlan = {
+      filesTouched: filePaths,
+      reversalStrategy: patches.map((p) => ({
+        file: p.filePath,
+        action: p.operation === 'create' ? 'delete file' : 'revert to previous version',
+      })),
+      dependencyRisks: protectedFiles.map((pf) => `Protected: ${pf.path} (${pf.protectionType})`),
+      rollbackComplexity: simpleRiskReport.rollbackComplexity,
+      cleanupSteps: ['Verify no broken imports', 'Run tests after rollback'],
+    }
+
+    // 8. Persist patch run to D1
     await payload.create({
       collection: 'patch-runs',
       data: {
@@ -115,6 +132,7 @@ export const POST = async (req: Request): Promise<Response> => {
       overrideAccess: true,
     })
 
+    // 9. Persist review gate event
     if (FEATURE_FLAGS.M3_REVIEW_GATES) {
       await payload.create({
         collection: 'review-gate-events',
@@ -133,6 +151,21 @@ export const POST = async (req: Request): Promise<Response> => {
       })
     }
 
+    // 10. Persist rollback plan
+    await payload.create({
+      collection: 'rollback-plans',
+      data: {
+        runId,
+        projectId,
+        filesTouched: JSON.stringify(rollbackPlan.filesTouched),
+        reversalStrategy: JSON.stringify(rollbackPlan.reversalStrategy),
+        dependencyRisks: JSON.stringify(rollbackPlan.dependencyRisks),
+        rollbackComplexity: rollbackPlan.rollbackComplexity,
+        cleanupSteps: JSON.stringify(rollbackPlan.cleanupSteps),
+      },
+      overrideAccess: true,
+    })
+
     return Response.json({
       success: validation.valid && reviewGateResult.canProceed,
       runId,
@@ -140,8 +173,9 @@ export const POST = async (req: Request): Promise<Response> => {
       validation: { valid: validation.valid, errors: validation.errors, warnings: validation.warnings, summary: validation.summary },
       scopeCheck: { allowed: scopeCheck.allowed, restricted: scopeCheck.restricted, blocked: scopeCheck.blocked },
       protectedFiles,
-      riskReport,
+      riskReport: simpleRiskReport,
       reviewGate: reviewGateResult,
+      rollbackPlan,
       rejectedFiles: diffResult.rejectedFiles,
       metadata: { ...diffResult.metadata, durationMs: Date.now() - startMs },
     })
