@@ -152,16 +152,17 @@ export const POST = async (req: Request): Promise<Response> => {
     }
 
     // 10. Persist rollback plan
+    const complexityMap: Record<string, string> = { low: 'SIMPLE', medium: 'MODERATE', high: 'COMPLEX' }
     await payload.create({
       collection: 'rollback-plans',
       data: {
         runId,
         projectId,
-        filesTouched: JSON.stringify(rollbackPlan.filesTouched),
-        reversalStrategy: JSON.stringify(rollbackPlan.reversalStrategy),
-        dependencyRisks: JSON.stringify(rollbackPlan.dependencyRisks),
-        rollbackComplexity: rollbackPlan.rollbackComplexity,
-        cleanupSteps: JSON.stringify(rollbackPlan.cleanupSteps),
+        filesTouched: rollbackPlan.filesTouched,
+        reversalStrategy: rollbackPlan.reversalStrategy.map((r) => `${r.file}: ${r.action}`).join('\n'),
+        dependencyRisks: rollbackPlan.dependencyRisks.join('\n'),
+        rollbackComplexity: complexityMap[rollbackPlan.rollbackComplexity] || 'SIMPLE',
+        cleanupConsiderations: rollbackPlan.cleanupSteps.join('\n'),
       },
       overrideAccess: true,
     })
