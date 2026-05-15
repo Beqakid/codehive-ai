@@ -5,7 +5,7 @@
 import { getPayload } from 'payload'
 import config from '@payload-config'
 import { notFound } from 'next/navigation'
-import { M1PlanInterface } from '../../../../components/M1PlanInterface'
+import { M1PlanInterface } from '../../../../../components/M1PlanInterface'
 
 interface PageProps {
   params: Promise<{ id: string }>

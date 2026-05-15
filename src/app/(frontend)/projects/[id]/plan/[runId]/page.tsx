@@ -1,7 +1,7 @@
 /**
  * /projects/[id]/plan/[runId]/page.tsx  (Server Component wrapper)
  */
-import { RunDetailPage } from '../../../../../components/RunDetailPage'
+import { RunDetailPage } from '../../../../../../components/RunDetailPage'
 
 interface PageProps {
   params: Promise<{ id: string; runId: string }>
