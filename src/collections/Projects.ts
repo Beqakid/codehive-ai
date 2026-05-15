@@ -42,7 +42,30 @@ export const Projects: CollectionConfig = {
       name: 'repoUrl',
       type: 'text',
       admin: {
-        description: 'GitHub repository URL',
+        description: 'GitHub repository URL (e.g. https://github.com/owner/repo)',
+      },
+    },
+    // ─── Milestone 1 additions (additive, non-breaking) ──────────────────────
+    {
+      name: 'repoOwner',
+      type: 'text',
+      admin: {
+        description: 'GitHub repository owner (username or org). Derived from repoUrl if blank.',
+      },
+    },
+    {
+      name: 'repoName',
+      type: 'text',
+      admin: {
+        description: 'GitHub repository name. Derived from repoUrl if blank.',
+      },
+    },
+    {
+      name: 'defaultBranch',
+      type: 'text',
+      defaultValue: 'main',
+      admin: {
+        description: 'Default branch for this repository (e.g. main, master)',
       },
     },
   ],
