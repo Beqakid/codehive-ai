@@ -8,9 +8,9 @@
  */
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { validateRepoAccess, fetchRepoMetadata, fetchFileTree, fetchKeyFiles, parseRepoUrl } from '../../../../../lib/repoService'
-import { analyzeRepository, findCentralFiles, extractDependencyEdges } from '../../../../../lib/repoIntelligence'
-import { FEATURE_FLAGS } from '../../../../../lib/featureFlags'
+import { validateRepoAccess, fetchRepoMetadata, fetchFileTree, fetchKeyFiles, parseRepoUrl } from '../../../../../../lib/repoService'
+import { analyzeRepository, findCentralFiles, extractDependencyEdges } from '../../../../../../lib/repoIntelligence'
+import { FEATURE_FLAGS } from '../../../../../../lib/featureFlags'
 
 export const GET = async (
   _req: Request,

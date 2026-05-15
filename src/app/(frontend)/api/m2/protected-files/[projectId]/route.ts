@@ -7,9 +7,9 @@
  */
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { validateRepoAccess, fetchRepoMetadata, fetchFileTree, parseRepoUrl } from '../../../../../lib/repoService'
-import { classifyProtectedFiles, getProtectionBadge, PROTECTION_RULES } from '../../../../../lib/protectedFiles'
-import { FEATURE_FLAGS } from '../../../../../lib/featureFlags'
+import { validateRepoAccess, fetchRepoMetadata, fetchFileTree, parseRepoUrl } from '../../../../../../lib/repoService'
+import { classifyProtectedFiles, getProtectionBadge, PROTECTION_RULES } from '../../../../../../lib/protectedFiles'
+import { FEATURE_FLAGS } from '../../../../../../lib/featureFlags'
 
 export const GET = async (
   _req: Request,

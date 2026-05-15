@@ -6,9 +6,9 @@
  */
 import { getPayload } from 'payload'
 import config from '@payload-config'
-import { FEATURE_FLAGS } from '../../../../../lib/featureFlags'
-import { getRiskColor, getRiskEmoji } from '../../../../../lib/riskEngine'
-import type { RiskLevel } from '../../../../../lib/riskEngine'
+import { FEATURE_FLAGS } from '../../../../../../lib/featureFlags'
+import { getRiskColor, getRiskEmoji } from '../../../../../../lib/riskEngine'
+import type { RiskLevel } from '../../../../../../lib/riskEngine'
 
 export const GET = async (
   _req: Request,
