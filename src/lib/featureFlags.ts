@@ -1,7 +1,7 @@
 /**
  * Feature flags for CodeHive AI
  * Set env vars to override defaults.
- * All new M2 features are individually toggleable.
+ * All new features are individually toggleable.
  */
 export const FEATURE_FLAGS = {
   /** Milestone 1 — Repo-aware planning agent with PR creation. Default: ON */
@@ -24,4 +24,28 @@ export const FEATURE_FLAGS = {
 
   /** Milestone 2 — Enriched planner context (passes intelligence + risk to AI) */
   M2_ENRICHED_PLANNER: process.env.M2_ENRICHED_PLANNER_ENABLED !== 'false',
+
+  /** Milestone 3 — Safe patch generation via AI */
+  M3_PATCH_GENERATION: process.env.M3_PATCH_GENERATION_ENABLED !== 'false',
+
+  /** Milestone 3 — Edit scope restrictions */
+  M3_EDIT_SCOPE: process.env.M3_EDIT_SCOPE_ENABLED !== 'false',
+
+  /** Milestone 3 — Patch validation pipeline */
+  M3_PATCH_VALIDATION: process.env.M3_PATCH_VALIDATION_ENABLED !== 'false',
+
+  /** Milestone 3 — Sandbox execution (test/lint/build) */
+  M3_SANDBOX: process.env.M3_SANDBOX_ENABLED !== 'false',
+
+  /** Milestone 3 — Self-healing loop (limited auto-repair) */
+  M3_SELF_HEALING: process.env.M3_SELF_HEALING_ENABLED !== 'false',
+
+  /** Milestone 3 — Review gates (approval enforcement) */
+  M3_REVIEW_GATES: process.env.M3_REVIEW_GATES_ENABLED !== 'false',
+
+  /** Milestone 3 — Diff review UI */
+  M3_DIFF_REVIEW: process.env.M3_DIFF_REVIEW_ENABLED !== 'false',
+
+  /** Milestone 3 — Rollback planning */
+  M3_ROLLBACK_PLANNING: process.env.M3_ROLLBACK_PLANNING_ENABLED !== 'false',
 }

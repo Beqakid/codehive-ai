@@ -23,6 +23,12 @@ import { ProjectMemory } from './collections/ProjectMemory'
 import { LessonsLearned } from './collections/LessonsLearned'
 import { RepoIntelligence } from './collections/RepoIntelligence'
 import { RunRiskReports } from './collections/RunRiskReports'
+import { PatchRuns } from './collections/PatchRuns'
+import { ValidationResults } from './collections/ValidationResults'
+import { SandboxRuns } from './collections/SandboxRuns'
+import { RollbackPlans } from './collections/RollbackPlans'
+import { ReviewGateEvents } from './collections/ReviewGateEvents'
+import { SelfHealAttempts } from './collections/SelfHealAttempts'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -79,6 +85,12 @@ export default buildConfig({
     LessonsLearned,
     RepoIntelligence,   // ← Milestone 2 addition
     RunRiskReports,     // ← Milestone 2 addition
+    PatchRuns,          // ← Milestone 3 addition
+    ValidationResults,  // ← Milestone 3 addition
+    SandboxRuns,        // ← Milestone 3 addition
+    RollbackPlans,      // ← Milestone 3 addition
+    ReviewGateEvents,   // ← Milestone 3 addition
+    SelfHealAttempts,   // ← Milestone 3 addition
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
