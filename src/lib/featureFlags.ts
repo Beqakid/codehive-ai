@@ -75,4 +75,34 @@ export const FEATURE_FLAGS = {
 
   /** Milestone 4 — Execution analytics */
   M4_ANALYTICS: process.env.M4_ANALYTICS_ENABLED !== 'false',
+
+  /** Milestone 5 — Multi-agent orchestration pipeline */
+  M5_AGENT_PIPELINE: process.env.M5_AGENT_PIPELINE_ENABLED !== 'false',
+
+  /** Milestone 5 — Agent verdict scoring system */
+  M5_AGENT_VERDICT: process.env.M5_AGENT_VERDICT_ENABLED !== 'false',
+
+  /** Milestone 5 — Persistent memory system */
+  M5_MEMORY_SYSTEM: process.env.M5_MEMORY_SYSTEM_ENABLED !== 'false',
+
+  /** Milestone 5 — Memory-aware runs (inject prior context) */
+  M5_MEMORY_AWARE: process.env.M5_MEMORY_AWARE_ENABLED !== 'false',
+
+  /** Milestone 5 — Self-healing V2 (fingerprinting + policy) */
+  M5_HEALING_V2: process.env.M5_HEALING_V2_ENABLED !== 'false',
+
+  /** Milestone 5 — Model routing abstraction */
+  M5_MODEL_ROUTER: process.env.M5_MODEL_ROUTER_ENABLED !== 'false',
+
+  /** Milestone 5 — Enhanced PR quality (full agent summary) */
+  M5_PR_QUALITY: process.env.M5_PR_QUALITY_ENABLED !== 'false',
+
+  /** Milestone 5 — Agent observability */
+  M5_OBSERVABILITY: process.env.M5_OBSERVABILITY_ENABLED !== 'false',
+
+  /** Milestone 5 — Failure fingerprinting */
+  M5_FAILURE_FINGERPRINT: process.env.M5_FAILURE_FINGERPRINT_ENABLED !== 'false',
+
+  /** Milestone 5 — Reviewer agent independence */
+  M5_REVIEWER_INDEPENDENCE: process.env.M5_REVIEWER_INDEPENDENCE_ENABLED !== 'false',
 }

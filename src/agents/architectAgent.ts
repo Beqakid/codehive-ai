@@ -1,243 +1,223 @@
 /**
  * @module architectAgent
- * @description Architect Agent that designs technical architecture from a product spec.
- * Calls Anthropic Claude Sonnet 4.6 with extended thinking and streaming as primary provider,
- * falls back to OpenAI gpt-4.1 if Anthropic is unavailable.
- * Exports: runArchitectAgent, ArchitectureDesign, ArchitectAgentInput.
+ * @description Milestone 5 — Enhanced Architect Agent.
+ * Designs technical architecture for coding tasks using structured reasoning.
+ * Uses modelRouter with extended thinking enabled for Anthropic (Claude Sonnet)
+ * to produce high-quality architecture plans.
+ *
+ * Supports both streaming and non-streaming modes.
+ *
+ * Exports: runArchitectAgent, runArchitectAgentStreaming, ArchitectAgentInput,
+ *          ArchitectAgentOutput, ArchitectAgentResult.
  */
 
-import type { RepoContext } from '../lib/github'
+import {
+  callModel,
+  callModelStreaming,
+  extractJsonFromResponse,
+} from '../lib/modelRouter'
+import type { ModelCallResult } from '../lib/modelRouter'
 
-export interface ArchitectureDesign {
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ArchitectAgentOutput {
   overview: string
-  components: Array<{
-    name: string
-    type: 'frontend' | 'backend' | 'shared' | 'database'
-    description: string
-    dependencies: string[]
-  }>
-  dataModels: Array<{
-    name: string
-    fields: Array<{ name: string; type: string; required: boolean }>
-  }>
-  apiEndpoints: Array<{
-    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
-    path: string
-    description: string
-  }>
-  fileStructure: string[]
-  techStack: string[]
+  approach: string
+  components: Array<{ name: string; type: string; description: string }>
+  filesToCreate: string[]
+  filesToModify: string[]
+  risks: string[]
+  estimatedFiles: number
+  score: number // 0-100 confidence
 }
 
 export interface ArchitectAgentInput {
   title: string
-  description: string
+  projectName: string
   productSpec: string
-  repoContext?: RepoContext
+  repoIntelligence?: string
+  memoryContext?: string
+  existingFiles?: Array<{ path: string; content: string }>
 }
+
+export interface ArchitectAgentResult {
+  output: ArchitectAgentOutput
+  markdown: string
+  model: string
+  provider: string
+  durationMs: number
+  fromFallback: boolean
+  score: number
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompts
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildSystemPrompt(): string {
+  return `You are a senior software architect. Design technical architecture for coding tasks.
+Think deeply about component structure, dependencies, file organization, and risk.
+
+You MUST respond with TWO sections:
+1. A markdown architecture document (for human reading)
+2. A JSON block with structured data
+
+Format your response EXACTLY like this:
+
+<markdown>
+(your full markdown architecture document here)
+</markdown>
+
+<json>
+{
+  "overview": "High-level overview of the architecture",
+  "approach": "Technical approach and key decisions",
+  "components": [
+    { "name": "ComponentName", "type": "api|ui|lib|config|test", "description": "What it does" }
+  ],
+  "filesToCreate": ["path/to/new/file.ts"],
+  "filesToModify": ["path/to/existing/file.ts"],
+  "risks": ["risk description"],
+  "estimatedFiles": 5,
+  "score": 85
+}
+</json>
+
+Be thorough but practical. Focus on minimal, safe changes that accomplish the goal.
+Score should reflect your confidence in the plan (0-100).`
+}
+
+function buildUserPrompt(input: ArchitectAgentInput): string {
+  let prompt = `# Architecture Design Request
+**Project:** ${input.projectName}
+**Title:** ${input.title}
+
+## Product Specification
+${input.productSpec}`
+
+  if (input.repoIntelligence) {
+    prompt += `\n\n## Repository Intelligence\n${input.repoIntelligence}`
+  }
+
+  if (input.memoryContext) {
+    prompt += `\n\n## Prior Context from Memory\n${input.memoryContext}`
+  }
+
+  if (input.existingFiles && input.existingFiles.length > 0) {
+    prompt += `\n\n## Existing Source Files`
+    for (const f of input.existingFiles) {
+      prompt += `\n\n### ${f.path}\n\`\`\`\n${f.content.slice(0, 4000)}\n\`\`\``
+    }
+  }
+
+  prompt += `\n\nDesign a technical architecture for this task. Include:
+1. **Overview** — high-level description
+2. **Approach** — technical approach and key decisions
+3. **Components** — each component with name, type, and description
+4. **Files to Create** — new files needed
+5. **Files to Modify** — existing files to change
+6. **Risks** — potential issues
+7. **Estimated Files** — total file count
+8. **Confidence Score** — 0-100`
+
+  return prompt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Response parsing
+// ─────────────────────────────────────────────────────────────────────────────
+
+function parseResponse(raw: string): { output: ArchitectAgentOutput; markdown: string } {
+  // Extract markdown section
+  let markdown = raw
+  const mdMatch = raw.match(/<markdown>([\s\S]*?)<\/markdown>/)
+  if (mdMatch) {
+    markdown = mdMatch[1].trim()
+  }
+
+  // Extract JSON section
+  let output: ArchitectAgentOutput
+  const jsonMatch = raw.match(/<json>([\s\S]*?)<\/json>/)
+  if (jsonMatch) {
+    output = extractJsonFromResponse<ArchitectAgentOutput>(jsonMatch[1])
+  } else {
+    output = extractJsonFromResponse<ArchitectAgentOutput>(raw)
+  }
+
+  // Validate and normalize
+  output.overview = output.overview || ''
+  output.approach = output.approach || ''
+  output.components = Array.isArray(output.components) ? output.components : []
+  output.filesToCreate = Array.isArray(output.filesToCreate) ? output.filesToCreate : []
+  output.filesToModify = Array.isArray(output.filesToModify) ? output.filesToModify : []
+  output.risks = Array.isArray(output.risks) ? output.risks : []
+  output.estimatedFiles = typeof output.estimatedFiles === 'number'
+    ? output.estimatedFiles
+    : output.filesToCreate.length + output.filesToModify.length
+  output.score = typeof output.score === 'number' && output.score >= 0 && output.score <= 100
+    ? output.score
+    : 70
+
+  return { output, markdown }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Non-streaming runner
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function runArchitectAgent(
   input: ArchitectAgentInput,
-  onChunk: (text: string) => void,
-): Promise<string> {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
+): Promise<ArchitectAgentResult> {
+  const startTime = Date.now()
 
-  if (!anthropicKey) {
-    return runArchitectAgentOpenAI(input, onChunk)
-  }
-
-  const repoSection = input.repoContext
-    ? `\n## Repository: ${input.repoContext.owner}/${input.repoContext.repo}\n${input.repoContext.description}\n\n### File Structure\n${input.repoContext.structure}\n\n${input.repoContext.files.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n')}`
-    : ''
-
-  const systemPrompt = `You are a senior software architect specializing in TypeScript, Next.js, and Cloudflare Workers. Design practical, implementable technical plans. Be specific about files, components, and data models. Use markdown formatting.`
-
-  const userPrompt = `# Coding Request
-**Title:** ${input.title}
-**Description:** ${input.description}
-
-# Product Specification
-${input.productSpec}
-${repoSection}
-
-Design the technical architecture with:
-1. **Overview** — high-level approach (2-3 sentences)
-2. **Components** — list each with type (frontend/backend/shared/database) and responsibility
-3. **Data Models** — key entities and their fields
-4. **API Endpoints** — routes that need to be created or modified
-5. **File Structure** — specific files to create or modify
-6. **Implementation Steps** — ordered action plan`
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': anthropicKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 16000,
-      thinking: {
-        type: 'enabled',
-        budget_tokens: 8000,
-      },
-      stream: true,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
+  const result: ModelCallResult = await callModel('architect', {
+    systemPrompt: buildSystemPrompt(),
+    userPrompt: buildUserPrompt(input),
   })
 
-  if (!response.ok || !response.body) {
-    const err = await response.text()
-    console.error(`Anthropic API error ${response.status}: ${err} — falling back to OpenAI gpt-4.1`)
-    return runArchitectAgentOpenAI(input, onChunk)
-  }
+  const { output, markdown } = parseResponse(result.content)
 
-  return parseAnthropicStream(response.body, onChunk)
+  return {
+    output,
+    markdown,
+    model: result.model,
+    provider: result.provider,
+    durationMs: Date.now() - startTime,
+    fromFallback: result.fromFallback,
+    score: output.score,
+  }
 }
 
-async function parseAnthropicStream(
-  body: ReadableStream<Uint8Array>,
-  onChunk: (text: string) => void,
-): Promise<string> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let fullContent = ''
-  let buffer = ''
+// ─────────────────────────────────────────────────────────────────────────────
+// Streaming runner
+// ─────────────────────────────────────────────────────────────────────────────
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6).trim()
-      if (!data || data === '[DONE]') continue
-      try {
-        const json = JSON.parse(data) as {
-          type?: string
-          delta?: { type?: string; text?: string; thinking?: string }
-          index?: number
-        }
-        // Don't stream raw thinking to UI — just accumulate silently
-        if (
-          json.type === 'content_block_delta' &&
-          json.delta?.type === 'thinking_delta' &&
-          json.delta?.thinking
-        ) {
-          continue
-        }
-        if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
-          const text = json.delta.text || ''
-          if (text) {
-            fullContent += text
-            onChunk(text)
-          }
-        }
-      } catch {
-        // skip malformed chunks
-      }
-    }
-  }
-
-  return fullContent
-}
-
-/** Fallback: use OpenAI gpt-4.1 if Anthropic is unavailable */
-async function runArchitectAgentOpenAI(
+export async function runArchitectAgentStreaming(
   input: ArchitectAgentInput,
   onChunk: (text: string) => void,
-): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is configured')
+): Promise<ArchitectAgentResult> {
+  const startTime = Date.now()
 
-  const repoSection = input.repoContext
-    ? `\n## Repository: ${input.repoContext.owner}/${input.repoContext.repo}\n${input.repoContext.description}\n\n### File Structure\n${input.repoContext.structure}\n\n${input.repoContext.files.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n')}`
-    : ''
-
-  const systemPrompt = `You are a senior software architect specializing in TypeScript, Next.js, and Cloudflare Workers. Design practical, implementable technical plans. Be specific about files, components, and data models. Use markdown formatting.`
-
-  const userPrompt = `# Coding Request
-**Title:** ${input.title}
-**Description:** ${input.description}
-
-# Product Specification
-${input.productSpec}
-${repoSection}
-
-Design the technical architecture with:
-1. **Overview** — high-level approach (2-3 sentences)
-2. **Components** — list each with type (frontend/backend/shared/database) and responsibility
-3. **Data Models** — key entities and their fields
-4. **API Endpoints** — routes that need to be created or modified
-5. **File Structure** — specific files to create or modify
-6. **Implementation Steps** — ordered action plan`
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
+  const result: ModelCallResult = await callModelStreaming(
+    'architect',
+    {
+      systemPrompt: buildSystemPrompt(),
+      userPrompt: buildUserPrompt(input),
     },
-    body: JSON.stringify({
-      model: 'gpt-4.1',
-      max_tokens: 4000,
-      stream: true,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-  })
+    onChunk,
+  )
 
-  if (!response.ok || !response.body) {
-    const err = await response.text()
-    throw new Error(`OpenAI API error ${response.status}: ${err}`)
+  const { output, markdown } = parseResponse(result.content)
+
+  return {
+    output,
+    markdown,
+    model: result.model,
+    provider: result.provider,
+    durationMs: Date.now() - startTime,
+    fromFallback: result.fromFallback,
+    score: output.score,
   }
-
-  return parseOpenAIStream(response.body, onChunk)
-}
-
-async function parseOpenAIStream(
-  body: ReadableStream<Uint8Array>,
-  onChunk: (text: string) => void,
-): Promise<string> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let fullContent = ''
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const data = line.slice(6).trim()
-      if (data === '[DONE]') continue
-      try {
-        const json = JSON.parse(data) as {
-          choices?: Array<{ delta?: { content?: string } }>
-        }
-        const text = json.choices?.[0]?.delta?.content || ''
-        if (text) {
-          fullContent += text
-          onChunk(text)
-        }
-      } catch {
-        // skip malformed chunks
-      }
-    }
-  }
-
-  return fullContent
 }
