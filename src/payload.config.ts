@@ -36,6 +36,11 @@ import { ReplaySessions } from './collections/ReplaySessions'
 import { HealingAttempts } from './collections/HealingAttempts'
 import { CommandExecutions } from './collections/CommandExecutions'
 import { WorkspaceSnapshots } from './collections/WorkspaceSnapshots'
+import { RepoMemories } from './collections/RepoMemories'
+import { ProjectRules } from './collections/ProjectRules'
+import { LearnedFixes } from './collections/LearnedFixes'
+import { FailurePatterns } from './collections/FailurePatterns'
+import { AgentVerdicts } from './collections/AgentVerdicts'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -105,6 +110,11 @@ export default buildConfig({
     HealingAttempts,    // ← Milestone 4 addition
     CommandExecutions,  // ← Milestone 4 addition
     WorkspaceSnapshots, // ← Milestone 4 addition
+    RepoMemories,       // ← Milestone 5 addition
+    ProjectRules,       // ← Milestone 5 addition
+    LearnedFixes,       // ← Milestone 5 addition
+    FailurePatterns,    // ← Milestone 5 addition
+    AgentVerdicts,      // ← Milestone 5 addition
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
