@@ -29,6 +29,13 @@ import { SandboxRuns } from './collections/SandboxRuns'
 import { RollbackPlans } from './collections/RollbackPlans'
 import { ReviewGateEvents } from './collections/ReviewGateEvents'
 import { SelfHealAttempts } from './collections/SelfHealAttempts'
+import { WorkspaceRuns } from './collections/WorkspaceRuns'
+import { ExecutionSteps } from './collections/ExecutionSteps'
+import { ArtifactRecords } from './collections/ArtifactRecords'
+import { ReplaySessions } from './collections/ReplaySessions'
+import { HealingAttempts } from './collections/HealingAttempts'
+import { CommandExecutions } from './collections/CommandExecutions'
+import { WorkspaceSnapshots } from './collections/WorkspaceSnapshots'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -91,6 +98,13 @@ export default buildConfig({
     RollbackPlans,      // ← Milestone 3 addition
     ReviewGateEvents,   // ← Milestone 3 addition
     SelfHealAttempts,   // ← Milestone 3 addition
+    WorkspaceRuns,      // ← Milestone 4 addition
+    ExecutionSteps,     // ← Milestone 4 addition
+    ArtifactRecords,    // ← Milestone 4 addition
+    ReplaySessions,     // ← Milestone 4 addition
+    HealingAttempts,    // ← Milestone 4 addition
+    CommandExecutions,  // ← Milestone 4 addition
+    WorkspaceSnapshots, // ← Milestone 4 addition
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',

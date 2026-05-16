@@ -48,4 +48,31 @@ export const FEATURE_FLAGS = {
 
   /** Milestone 3 — Rollback planning */
   M3_ROLLBACK_PLANNING: process.env.M3_ROLLBACK_PLANNING_ENABLED !== 'false',
+
+  /** Milestone 4 — Isolated workspace system */
+  M4_WORKSPACE: process.env.M4_WORKSPACE_ENABLED !== 'false',
+
+  /** Milestone 4 — Real patch application to temp repos */
+  M4_PATCH_APPLY: process.env.M4_PATCH_APPLY_ENABLED !== 'false',
+
+  /** Milestone 4 — Real test/build/lint execution pipeline */
+  M4_EXECUTION_PIPELINE: process.env.M4_EXECUTION_PIPELINE_ENABLED !== 'false',
+
+  /** Milestone 4 — R2 artifact storage */
+  M4_ARTIFACTS: process.env.M4_ARTIFACTS_ENABLED !== 'false',
+
+  /** Milestone 4 — Execution replay system */
+  M4_REPLAY: process.env.M4_REPLAY_ENABLED !== 'false',
+
+  /** Milestone 4 — Advanced self-healing strategies */
+  M4_ADVANCED_HEALING: process.env.M4_ADVANCED_HEALING_ENABLED !== 'false',
+
+  /** Milestone 4 — PR materialization pipeline */
+  M4_PR_MATERIALIZE: process.env.M4_PR_MATERIALIZE_ENABLED !== 'false',
+
+  /** Milestone 4 — Orchestration resilience */
+  M4_ORCHESTRATION: process.env.M4_ORCHESTRATION_ENABLED !== 'false',
+
+  /** Milestone 4 — Execution analytics */
+  M4_ANALYTICS: process.env.M4_ANALYTICS_ENABLED !== 'false',
 }

@@ -7,6 +7,7 @@ import * as migration_20260505_lessons_learned from './20260505_lessons_learned'
 import * as migration_20260515_m1 from './20260515_m1'
 import * as migration_20260516_m2 from './20260516_m2'
 import * as migration_20260517_m3 from './20260517_m3'
+import * as migration_20260518_m4 from './20260518_m4'
 
 export const migrations = [
   {
@@ -53,5 +54,10 @@ export const migrations = [
     up: migration_20260517_m3.up,
     down: migration_20260517_m3.down,
     name: '20260517_m3',
+  },
+  {
+    up: migration_20260518_m4.up,
+    down: migration_20260518_m4.down,
+    name: '20260518_m4',
   },
 ]

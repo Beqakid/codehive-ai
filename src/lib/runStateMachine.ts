@@ -1,10 +1,13 @@
 /**
  * @module runStateMachine
- * @description Milestone 2 + 3 — Agent run state machine.
+ * @description Milestone 2 + 3 + 4 — Agent run state machine.
  * Provides retry-safe state transitions, valid transition guards,
  * timeout handling, and stale run detection.
  * M3 adds: patch_generation, patch_validation, sandbox_execution,
  * test_execution, self_healing, review_gate, pr_ready states.
+ * M4 adds: workspace_setup, patch_application, dependency_install,
+ * lint_execution, build_execution, artifact_upload, pr_materialization,
+ * cleanup states.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,6 +30,16 @@ export type RunState =
   | 'review_gate'
   | 'pr_ready'
   // ↑ M3 additions
+  // M4 additions ↓
+  | 'workspace_setup'
+  | 'patch_application'
+  | 'dependency_install'
+  | 'lint_execution'
+  | 'build_execution'
+  | 'artifact_upload'
+  | 'pr_materialization'
+  | 'cleanup'
+  // ↑ M4 additions
   | 'creating_pr'
   | 'completed'
   | 'failed'
@@ -47,6 +60,16 @@ export type RunEvent =
   | 'REVIEW_PASSED'
   | 'READY_FOR_PR'
   // ↑ M3 additions
+  // M4 additions ↓
+  | 'WORKSPACE_READY'
+  | 'PATCHES_APPLIED'
+  | 'DEPS_INSTALLED'
+  | 'LINT_DONE'
+  | 'BUILD_DONE'
+  | 'ARTIFACTS_UPLOADED'
+  | 'PR_MATERIALIZED'
+  | 'CLEANUP_DONE'
+  // ↑ M4 additions
   | 'PR_CREATED'
   | 'ERROR'
   | 'CANCEL'
@@ -81,23 +104,46 @@ const TRANSITIONS: StateTransition[] = [
   { from: 'planning', event: 'PLAN_GENERATED', to: 'creating_pr' },
   { from: 'creating_pr', event: 'PR_CREATED', to: 'completed' },
 
-  // ── M3 patch generation flow ─────────────────────────────────────────────
-  // After planning, if patch mode: planning → patch_generation
-  { from: 'planning', event: 'PATCHES_GENERATED', to: 'patch_generation' },
-  { from: 'patch_generation', event: 'PATCHES_VALIDATED', to: 'patch_validation' },
-  { from: 'patch_validation', event: 'SANDBOX_PASSED', to: 'sandbox_execution' },
-  { from: 'sandbox_execution', event: 'TESTS_PASSED', to: 'test_execution' },
-  // From test_execution: either self-heal or go to review
-  { from: 'test_execution', event: 'REVIEW_PASSED', to: 'review_gate' },
-  { from: 'test_execution', event: 'SELF_HEAL_DONE', to: 'self_healing' },
-  // Self-healing goes back to patch_validation for re-check
-  { from: 'self_healing', event: 'PATCHES_VALIDATED', to: 'patch_validation' },
-  // Review gate leads to PR-ready
-  { from: 'review_gate', event: 'READY_FOR_PR', to: 'pr_ready' },
-  // PR-ready creates the PR
-  { from: 'pr_ready', event: 'PR_CREATED', to: 'completed' },
+  // ── M3 code-generation path (planning → patch pipeline → review) ─────────
+  { from: 'planning', event: 'PLAN_GENERATED', to: 'patch_generation' },
+  { from: 'patch_generation', event: 'PATCHES_GENERATED', to: 'patch_validation' },
+  { from: 'patch_validation', event: 'PATCHES_VALIDATED', to: 'sandbox_execution' },
+  { from: 'sandbox_execution', event: 'SANDBOX_PASSED', to: 'test_execution' },
+  { from: 'test_execution', event: 'TESTS_PASSED', to: 'review_gate' },
+  { from: 'review_gate', event: 'REVIEW_PASSED', to: 'pr_ready' },
+  { from: 'pr_ready', event: 'READY_FOR_PR', to: 'creating_pr' },
 
-  // ── Error transitions — any non-terminal state can fail ──────────────────
+  // M3 self-heal loop
+  { from: 'test_execution', event: 'ERROR', to: 'self_healing' },
+  { from: 'sandbox_execution', event: 'ERROR', to: 'self_healing' },
+  { from: 'self_healing', event: 'SELF_HEAL_DONE', to: 'sandbox_execution' },
+
+  // ── M4 real execution path (patch_validation → workspace → execute → PR) ─
+  { from: 'patch_validation', event: 'PATCHES_VALIDATED', to: 'workspace_setup' },
+  { from: 'workspace_setup', event: 'WORKSPACE_READY', to: 'patch_application' },
+  { from: 'patch_application', event: 'PATCHES_APPLIED', to: 'dependency_install' },
+  { from: 'dependency_install', event: 'DEPS_INSTALLED', to: 'lint_execution' },
+  { from: 'lint_execution', event: 'LINT_DONE', to: 'build_execution' },
+  { from: 'build_execution', event: 'BUILD_DONE', to: 'test_execution' },
+  { from: 'test_execution', event: 'TESTS_PASSED', to: 'artifact_upload' },
+  { from: 'artifact_upload', event: 'ARTIFACTS_UPLOADED', to: 'review_gate' },
+  { from: 'review_gate', event: 'REVIEW_PASSED', to: 'pr_materialization' },
+  { from: 'pr_materialization', event: 'PR_MATERIALIZED', to: 'cleanup' },
+  { from: 'cleanup', event: 'CLEANUP_DONE', to: 'completed' },
+
+  // M4 self-heal from execution failures
+  { from: 'lint_execution', event: 'ERROR', to: 'self_healing' },
+  { from: 'build_execution', event: 'ERROR', to: 'self_healing' },
+  { from: 'dependency_install', event: 'ERROR', to: 'self_healing' },
+  { from: 'self_healing', event: 'SELF_HEAL_DONE', to: 'dependency_install' },
+
+  // M4 cleanup on failure
+  { from: 'patch_application', event: 'ERROR', to: 'cleanup' },
+  { from: 'artifact_upload', event: 'ERROR', to: 'cleanup' },
+  { from: 'pr_materialization', event: 'ERROR', to: 'cleanup' },
+
+  // ── Error / cancel (any state) ───────────────────────────────────────────
+  { from: 'queued', event: 'ERROR', to: 'failed' },
   { from: 'starting', event: 'ERROR', to: 'failed' },
   { from: 'analyzing_repo', event: 'ERROR', to: 'failed' },
   { from: 'building_graph', event: 'ERROR', to: 'failed' },
@@ -105,128 +151,58 @@ const TRANSITIONS: StateTransition[] = [
   { from: 'planning', event: 'ERROR', to: 'failed' },
   { from: 'patch_generation', event: 'ERROR', to: 'failed' },
   { from: 'patch_validation', event: 'ERROR', to: 'failed' },
-  { from: 'sandbox_execution', event: 'ERROR', to: 'failed' },
-  { from: 'test_execution', event: 'ERROR', to: 'failed' },
-  { from: 'self_healing', event: 'ERROR', to: 'failed' },
-  { from: 'review_gate', event: 'ERROR', to: 'failed' },
-  { from: 'pr_ready', event: 'ERROR', to: 'failed' },
   { from: 'creating_pr', event: 'ERROR', to: 'failed' },
+  { from: 'workspace_setup', event: 'ERROR', to: 'failed' },
+  { from: 'cleanup', event: 'ERROR', to: 'failed' },
 
-  // ── Cancel transitions ──────────────────────────────────────────────────
+  // Cancel
   { from: 'queued', event: 'CANCEL', to: 'cancelled' },
   { from: 'starting', event: 'CANCEL', to: 'cancelled' },
   { from: 'analyzing_repo', event: 'CANCEL', to: 'cancelled' },
-  { from: 'building_graph', event: 'CANCEL', to: 'cancelled' },
-  { from: 'risk_analysis', event: 'CANCEL', to: 'cancelled' },
   { from: 'planning', event: 'CANCEL', to: 'cancelled' },
   { from: 'patch_generation', event: 'CANCEL', to: 'cancelled' },
-  { from: 'patch_validation', event: 'CANCEL', to: 'cancelled' },
-  { from: 'sandbox_execution', event: 'CANCEL', to: 'cancelled' },
+  { from: 'workspace_setup', event: 'CANCEL', to: 'cancelled' },
+  { from: 'patch_application', event: 'CANCEL', to: 'cancelled' },
+  { from: 'dependency_install', event: 'CANCEL', to: 'cancelled' },
+  { from: 'lint_execution', event: 'CANCEL', to: 'cancelled' },
+  { from: 'build_execution', event: 'CANCEL', to: 'cancelled' },
   { from: 'test_execution', event: 'CANCEL', to: 'cancelled' },
-  { from: 'self_healing', event: 'CANCEL', to: 'cancelled' },
-  { from: 'review_gate', event: 'CANCEL', to: 'cancelled' },
-  { from: 'pr_ready', event: 'CANCEL', to: 'cancelled' },
-  { from: 'creating_pr', event: 'CANCEL', to: 'cancelled' },
 
-  // ── Retry — only from failed, goes back to queued ───────────────────────
+  // ── Retry ────────────────────────────────────────────────────────────────
   { from: 'failed', event: 'RETRY', to: 'queued' },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Terminal states
+// State machine logic
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const TERMINAL_STATES: ReadonlySet<RunState> = new Set(['completed', 'failed', 'cancelled'])
-
-export function isTerminal(state: RunState): boolean {
-  return TERMINAL_STATES.has(state)
+export function canTransition(from: RunState, event: RunEvent): boolean {
+  return TRANSITIONS.some((t) => t.from === from && t.event === event)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Transition function
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Attempt a state transition. Returns the new state or throws if invalid.
- */
-export function transition(currentState: RunState, event: RunEvent): RunState {
-  if (isTerminal(currentState) && event !== 'RETRY') {
-    throw new Error(
-      `Cannot transition from terminal state "${currentState}" with event "${event}"`,
-    )
-  }
-
-  const match = TRANSITIONS.find((t) => t.from === currentState && t.event === event)
-  if (!match) {
-    throw new Error(
-      `Invalid transition: "${currentState}" + "${event}" has no valid target state`,
-    )
-  }
-
-  return match.to
+export function getNextState(from: RunState, event: RunEvent): RunState | null {
+  const transition = TRANSITIONS.find((t) => t.from === from && t.event === event)
+  return transition?.to ?? null
 }
 
-/**
- * Safe transition — returns null instead of throwing on invalid input.
- */
-export function safeTransition(currentState: RunState, event: RunEvent): RunState | null {
-  try {
-    return transition(currentState, event)
-  } catch {
-    return null
+export function transition(ctx: RunStateContext, event: RunEvent): RunStateContext {
+  const next = getNextState(ctx.state, event)
+  if (!next) {
+    return {
+      ...ctx,
+      errorMessage: `Invalid transition: ${ctx.state} + ${event}`,
+    }
+  }
+  return {
+    ...ctx,
+    state: next,
+    enteredAt: Date.now(),
+    retryCount: event === 'RETRY' ? ctx.retryCount + 1 : ctx.retryCount,
+    errorMessage: event === 'ERROR' ? ctx.errorMessage : undefined,
   }
 }
 
-/**
- * Returns all valid events from a given state.
- */
-export function validEventsFrom(state: RunState): RunEvent[] {
-  return TRANSITIONS.filter((t) => t.from === state).map((t) => t.event)
-}
-
-/**
- * Returns all valid target states from a given state.
- */
-export function validNextStates(state: RunState): RunState[] {
-  return TRANSITIONS.filter((t) => t.from === state).map((t) => t.to)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Timeout detection
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Max time in ms a run can spend in each non-terminal state before considered stale */
-const STATE_TIMEOUTS_MS: Record<RunState, number> = {
-  queued: 5 * 60 * 1000,           // 5 minutes
-  starting: 2 * 60 * 1000,         // 2 minutes
-  analyzing_repo: 3 * 60 * 1000,   // 3 minutes
-  building_graph: 2 * 60 * 1000,   // 2 minutes
-  risk_analysis: 2 * 60 * 1000,    // 2 minutes
-  planning: 5 * 60 * 1000,         // 5 minutes
-  patch_generation: 5 * 60 * 1000, // 5 minutes (M3)
-  patch_validation: 2 * 60 * 1000, // 2 minutes (M3)
-  sandbox_execution: 10 * 60 * 1000, // 10 minutes (M3 — sandbox can be slow)
-  test_execution: 10 * 60 * 1000,  // 10 minutes (M3)
-  self_healing: 5 * 60 * 1000,     // 5 minutes (M3)
-  review_gate: 30 * 60 * 1000,     // 30 minutes (M3 — human may need to approve)
-  pr_ready: 3 * 60 * 1000,         // 3 minutes (M3)
-  creating_pr: 3 * 60 * 1000,      // 3 minutes
-  completed: Infinity,
-  failed: Infinity,
-  cancelled: Infinity,
-}
-
-export function isRunStale(context: RunStateContext, nowMs = Date.now()): boolean {
-  if (isTerminal(context.state)) return false
-  const maxAge = STATE_TIMEOUTS_MS[context.state] ?? 5 * 60 * 1000
-  return nowMs - context.enteredAt > maxAge
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Context helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function createRunContext(runId: string): RunStateContext {
+export function createInitialContext(runId: string): RunStateContext {
   return {
     state: 'queued',
     runId,
@@ -235,65 +211,77 @@ export function createRunContext(runId: string): RunStateContext {
   }
 }
 
-export function applyEvent(
-  context: RunStateContext,
-  event: RunEvent,
-  errorMessage?: string,
-): RunStateContext {
-  const newState = transition(context.state, event)
-  return {
-    ...context,
-    state: newState,
-    enteredAt: Date.now(),
-    retryCount: event === 'RETRY' ? context.retryCount + 1 : context.retryCount,
-    errorMessage: event === 'ERROR' ? errorMessage : undefined,
+// ─────────────────────────────────────────────────────────────────────────────
+// Stale / timeout detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STATE_TIMEOUTS_MS: Partial<Record<RunState, number>> = {
+  queued: 10 * 60_000,           // 10 min
+  starting: 2 * 60_000,         // 2 min
+  analyzing_repo: 5 * 60_000,   // 5 min
+  building_graph: 5 * 60_000,   // 5 min
+  risk_analysis: 3 * 60_000,    // 3 min
+  planning: 10 * 60_000,        // 10 min
+  patch_generation: 10 * 60_000, // 10 min
+  patch_validation: 2 * 60_000,  // 2 min
+  workspace_setup: 3 * 60_000,   // 3 min
+  patch_application: 3 * 60_000, // 3 min
+  dependency_install: 5 * 60_000, // 5 min
+  lint_execution: 5 * 60_000,    // 5 min
+  build_execution: 10 * 60_000,  // 10 min
+  test_execution: 10 * 60_000,   // 10 min
+  sandbox_execution: 10 * 60_000, // 10 min
+  self_healing: 5 * 60_000,      // 5 min
+  review_gate: 2 * 60_000,       // 2 min
+  artifact_upload: 3 * 60_000,   // 3 min
+  pr_materialization: 3 * 60_000, // 3 min
+  pr_ready: 5 * 60_000,         // 5 min
+  creating_pr: 5 * 60_000,      // 5 min
+  cleanup: 3 * 60_000,          // 3 min
+}
+
+export function isStale(ctx: RunStateContext): boolean {
+  const timeout = STATE_TIMEOUTS_MS[ctx.state]
+  if (!timeout) return false
+  return Date.now() - ctx.enteredAt > timeout
+}
+
+export const MAX_RETRIES = 3
+
+export function canRetry(ctx: RunStateContext): boolean {
+  return ctx.state === 'failed' && ctx.retryCount < MAX_RETRIES
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function isTerminal(state: RunState): boolean {
+  return ['completed', 'failed', 'cancelled'].includes(state)
+}
+
+export function isM4State(state: RunState): boolean {
+  return [
+    'workspace_setup',
+    'patch_application',
+    'dependency_install',
+    'lint_execution',
+    'build_execution',
+    'artifact_upload',
+    'pr_materialization',
+    'cleanup',
+  ].includes(state)
+}
+
+export function getAllStates(): RunState[] {
+  const states = new Set<RunState>()
+  for (const t of TRANSITIONS) {
+    states.add(t.from)
+    states.add(t.to)
   }
+  return [...states]
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Human-readable labels
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const STATE_LABELS: Record<RunState, string> = {
-  queued: 'Queued',
-  starting: 'Starting…',
-  analyzing_repo: 'Analyzing Repository',
-  building_graph: 'Building Dependency Graph',
-  risk_analysis: 'Assessing Risk',
-  planning: 'Generating Plan',
-  patch_generation: 'Generating Code Patches',
-  patch_validation: 'Validating Patches',
-  sandbox_execution: 'Running Sandbox',
-  test_execution: 'Running Tests',
-  self_healing: 'Self-Healing',
-  review_gate: 'Awaiting Review',
-  pr_ready: 'Preparing PR',
-  creating_pr: 'Creating Pull Request',
-  completed: 'Completed ✅',
-  failed: 'Failed ❌',
-  cancelled: 'Cancelled',
-}
-
-export const STATE_PROGRESS: Record<RunState, number> = {
-  queued: 0,
-  starting: 5,
-  analyzing_repo: 12,
-  building_graph: 20,
-  risk_analysis: 28,
-  planning: 35,
-  patch_generation: 45,
-  patch_validation: 55,
-  sandbox_execution: 65,
-  test_execution: 72,
-  self_healing: 75,
-  review_gate: 82,
-  pr_ready: 90,
-  creating_pr: 95,
-  completed: 100,
-  failed: 0,
-  cancelled: 0,
-}
-
-export function getStateProgress(state: RunState): number {
-  return STATE_PROGRESS[state] ?? 0
+export function getValidEvents(state: RunState): RunEvent[] {
+  return TRANSITIONS.filter((t) => t.from === state).map((t) => t.event)
 }
