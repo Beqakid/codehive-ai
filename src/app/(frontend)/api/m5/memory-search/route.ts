@@ -38,13 +38,12 @@ export async function POST(req: NextRequest) {
 
     const payload = await getPayload({ config: configPromise })
 
-    const results = await retrieveMemories({
-      query: query.trim(),
-      projectId,
+    const results = await retrieveMemories(payload, {
+      projectId: projectId || '',
       repoName,
-      memoryTypes,
+      types: memoryTypes as any,
       limit: limit || 20,
-      payload,
+      searchText: query.trim(),
     })
 
     return NextResponse.json({
@@ -54,8 +53,8 @@ export async function POST(req: NextRequest) {
         repoName: repoName || null,
         memoryTypes: memoryTypes || null,
       },
-      totalResults: results.length,
-      results,
+      totalResults: results.totalRetrieved,
+      results: results.memories,
     })
   } catch (err) {
     console.error('[M5 /api/m5/memory-search] Error:', err)

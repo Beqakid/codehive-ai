@@ -110,9 +110,9 @@ export async function retrieveMemories(
 
     // Categorize
     const projectRules = matched.filter((e) => e.memoryType === 'project_rule')
-    const learnedFixes = matched.filter((e) => e.memoryType === 'fix_pattern')
+    const learnedFixes = matched.filter((e) => ['fix_pattern', 'learned_fix', 'successful_fix', 'error_fix'].includes(e.memoryType))
     const failurePatterns = matched.filter(
-      (e) => e.memoryType === 'error_pattern' || e.memoryType === 'failed_repair',
+      (e) => ['error_pattern', 'repeated_error', 'failed_repair'].includes(e.memoryType),
     )
     const repoFacts = matched.filter(
       (e) => e.memoryType === 'repo_architecture' || e.memoryType === 'protected_area',
