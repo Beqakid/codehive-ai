@@ -1,59 +1,111 @@
-/**
- * POST /api/m6/run/[runId]/retry — Retry a specific failed step
- */
-import { NextRequest, NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 import configPromise from '../../../../../../../payload.config'
-import { retryFailedStep } from '../../../../../../../lib/retryManager'
 import { chainNextStep } from '../../../../../../../lib/chainScheduler'
-import type { StepName } from '../../../../../../../lib/asyncPipeline'
+import { emitRunEvent } from '../../../../../../../lib/runEventEmitter'
 
 export async function POST(
-  req: NextRequest,
+  req: Request,
   { params }: { params: Promise<{ runId: string }> }
 ) {
   try {
     const { runId } = await params
-    let body: { stepName: string }
-    try {
-      body = (await req.json()) as { stepName: string }
-    } catch {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
-    }
-
-    if (!body.stepName) {
-      return NextResponse.json({ error: 'stepName is required' }, { status: 400 })
-    }
-
+    const body = await req.json().catch(() => ({}))
+    const stepName = body.stepName
     const payload = await getPayload({ config: configPromise })
-    const decision = await retryFailedStep(payload, runId, body.stepName as StepName)
 
-    if (!decision.allowed) {
-      return NextResponse.json({
-        status: 'rejected',
-        reason: decision.reason,
-        retryCount: decision.retryCount,
-        maxRetries: decision.maxRetries,
-      }, { status: 400 })
+    // Find the run
+    const runResult = await payload.find({
+      collection: 'async-runs',
+      where: { runId: { equals: runId } },
+      limit: 1,
+      overrideAccess: true,
+    })
+
+    if (!runResult.docs.length) {
+      return Response.json({ error: 'Run not found' }, { status: 404 })
     }
 
-    // Chain to process endpoint with backoff delay
-    chainNextStep(req.url.replace(/\/retry$/, '').replace(/\/[^/]+$/, ''), runId, decision.backoffMs)
+    const run = runResult.docs[0] as any
+    if (!['failed', 'stalled'].includes(run.status)) {
+      return Response.json(
+        { error: `Cannot retry steps on run with status: ${run.status}` },
+        { status: 400 }
+      )
+    }
 
-    return NextResponse.json({
-      status: 'retrying',
-      runId,
-      stepName: body.stepName,
-      retryCount: decision.retryCount,
-      maxRetries: decision.maxRetries,
-      backoffMs: decision.backoffMs,
-      message: `Retrying step ${body.stepName} (attempt ${decision.retryCount}/${decision.maxRetries})`,
+    // Find the step to retry
+    const stepWhere: any = { runId: { equals: runId } }
+    if (stepName) {
+      stepWhere.stepName = { equals: stepName }
+    } else {
+      stepWhere.status = { equals: 'failed' }
+    }
+
+    const stepResult = await payload.find({
+      collection: 'async-run-steps',
+      where: stepWhere,
+      limit: 1,
+      sort: 'stepIndex',
+      overrideAccess: true,
     })
-  } catch (err) {
-    console.error('[M6 POST /retry] Error:', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    )
+
+    if (!stepResult.docs.length) {
+      return Response.json(
+        { error: stepName ? `Step "${stepName}" not found` : 'No failed steps found' },
+        { status: 404 }
+      )
+    }
+
+    const step = stepResult.docs[0] as any
+    if (step.retryCount >= step.maxRetries) {
+      return Response.json(
+        { error: `Step "${step.stepName}" has exceeded max retries (${step.maxRetries})` },
+        { status: 400 }
+      )
+    }
+
+    // Reset step by ID
+    await payload.update({
+      collection: 'async-run-steps',
+      id: step.id,
+      data: {
+        status: 'ready',
+        error: null,
+        retryCount: (step.retryCount || 0) + 1,
+      },
+      overrideAccess: true,
+    })
+
+    // Reset run status by ID
+    await payload.update({
+      collection: 'async-runs',
+      id: run.id,
+      data: {
+        status: 'processing',
+        currentStep: step.stepName,
+        heartbeatAt: new Date().toISOString(),
+      },
+      overrideAccess: true,
+    })
+
+    await emitRunEvent(payload, {
+      runId,
+      stepName: step.stepName,
+      eventType: 'step_retry',
+      message: `Retrying step: ${step.stepName} (attempt ${step.retryCount + 1}/${step.maxRetries})`,
+    })
+
+    chainNextStep(req.url, runId)
+
+    return Response.json({
+      runId,
+      stepName: step.stepName,
+      retryCount: step.retryCount + 1,
+      maxRetries: step.maxRetries,
+      message: `Step "${step.stepName}" queued for retry`,
+    })
+  } catch (error: any) {
+    console.error('Retry step error:', error)
+    return Response.json({ error: error.message || 'Internal error' }, { status: 500 })
   }
 }

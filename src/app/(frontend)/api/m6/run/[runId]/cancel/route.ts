@@ -1,68 +1,58 @@
-/**
- * POST /api/m6/run/[runId]/cancel — Cancel a running or queued pipeline
- */
-import { NextRequest, NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 import configPromise from '../../../../../../../payload.config'
-import { getAsyncRunState, updateRunStatus, updateStepStatus } from '../../../../../../../lib/asyncPipeline'
 import { emitRunEvent } from '../../../../../../../lib/runEventEmitter'
 
 export async function POST(
-  req: NextRequest,
+  req: Request,
   { params }: { params: Promise<{ runId: string }> }
 ) {
   try {
     const { runId } = await params
     const payload = await getPayload({ config: configPromise })
-    const state = await getAsyncRunState(payload, runId)
 
-    if (!state) {
-      return NextResponse.json({ error: 'Run not found' }, { status: 404 })
+    const result = await payload.find({
+      collection: 'async-runs',
+      where: { runId: { equals: runId } },
+      limit: 1,
+      overrideAccess: true,
+    })
+
+    if (!result.docs.length) {
+      return Response.json({ error: 'Run not found' }, { status: 404 })
     }
 
-    const run = state.run
-    if (['completed', 'cancelled'].includes(run.status)) {
-      return NextResponse.json(
+    const run = result.docs[0] as any
+    if (!['queued', 'processing', 'stalled'].includes(run.status)) {
+      return Response.json(
         { error: `Cannot cancel run with status: ${run.status}` },
-        { status: 400 },
+        { status: 400 }
       )
     }
 
-    // Cancel all pending/ready/running steps
-    for (const step of state.steps) {
-      if (['pending', 'ready', 'running'].includes(step.status)) {
-        await updateStepStatus(payload, runId, step.stepName, {
-          status: 'skipped',
-          error: 'Cancelled by user',
-        })
-      }
-    }
-
-    const now = new Date().toISOString()
-    await updateRunStatus(payload, runId, {
-      status: 'cancelled',
-      completedAt: now,
-      durationMs: new Date(now).getTime() - new Date(run.startedAt).getTime(),
-    } as any)
+    // Update by ID to avoid locked_documents query issue
+    await payload.update({
+      collection: 'async-runs',
+      id: run.id,
+      data: {
+        status: 'cancelled',
+        completedAt: new Date().toISOString(),
+      },
+      overrideAccess: true,
+    })
 
     await emitRunEvent(payload, {
       runId,
-      stepName: null,
       eventType: 'run_cancelled',
-      message: 'Pipeline cancelled by user',
-      data: JSON.stringify({ cancelledAt: now }),
+      message: `Run cancelled by user`,
     })
 
-    return NextResponse.json({
-      status: 'cancelled',
+    return Response.json({
       runId,
-      message: 'Pipeline cancelled successfully',
+      status: 'cancelled',
+      message: 'Run cancelled successfully',
     })
-  } catch (err) {
-    console.error('[M6 POST /cancel] Error:', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    )
+  } catch (error: any) {
+    console.error('Cancel run error:', error)
+    return Response.json({ error: error.message || 'Internal error' }, { status: 500 })
   }
 }
