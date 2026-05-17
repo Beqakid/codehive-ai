@@ -192,10 +192,9 @@ export async function runAgentPipeline(
       const memories = await retrieveMemories(payload, {
         projectId: input.projectId,
         repoName: input.repoName,
-        query: `${input.title} ${input.description}`,
         limit: 20,
       })
-      memoryContext = buildMemoryContext(memories)
+      memoryContext = formatMemoriesForPrompt(memories)
     } catch (e) {
       console.error('[M5] Memory retrieval failed (non-fatal):', e)
       memoryContext = '(No prior memory available)'
@@ -209,12 +208,11 @@ export async function runAgentPipeline(
         title: input.title,
         description: input.description,
         projectName: input.projectName,
-        repoContext: `${input.repoOwner}/${input.repoName}`,
         memoryContext,
-      }, input.env)
+      })
 
-      if (!productResult.success || !productResult.output) {
-        throw new Error(productResult.error || 'Product agent returned no output')
+      if (!productResult.output) {
+        throw new Error('Product agent returned no output')
       }
       productOutput = productResult.output
       completeStep(productStep, productOutput, productResult.markdown, productResult.model)
@@ -360,25 +358,24 @@ export async function runAgentPipeline(
     startStep(codeStep)
     try {
       const codeResult: CodeAgentResult = await runCodeAgent({
+        title: input.title,
+        projectName: input.projectName,
         architectPlan: JSON.stringify(architectOutput),
         productSpec: JSON.stringify(productOutput),
+        repoIntelligence: JSON.stringify(repoIntelOutput),
         scopeRules: {
           allowedPaths: [
             ...(architectOutput?.filesToCreate || []),
             ...(architectOutput?.filesToModify || []),
           ],
           blockedPaths: repoIntelOutput?.protectedAreas || [],
-          maxFiles: 30,
-          allowNewFiles: true,
-          allowDeleteFiles: false,
+          maxNewFiles: 30,
         },
-        existingFiles: {},
-        projectName: input.projectName,
-        repoContext: `${input.repoOwner}/${input.repoName}`,
-      }, input.env)
+        existingFiles: [],
+      })
 
-      if (!codeResult.success || !codeResult.output) {
-        throw new Error(codeResult.error || 'Code agent returned no output')
+      if (!codeResult.output) {
+        throw new Error('Code agent returned no output')
       }
       codeOutput = codeResult.output
       completeStep(codeStep, codeOutput, codeResult.markdown, codeResult.model)
@@ -553,6 +550,8 @@ export async function runAgentPipeline(
     startStep(reviewStep)
     try {
       const reviewResult: ReviewerAgentResult = await runReviewerAgent({
+        title: input.title,
+        projectName: input.projectName,
         patches: codeOutput?.patches?.map((p: any) => ({
           filePath: p.filePath,
           operation: p.operation,
@@ -562,12 +561,11 @@ export async function runAgentPipeline(
         testResults: JSON.stringify(testOutput),
         rollbackPlan: `git revert HEAD~1 # Reverts ${codeOutput?.patches?.length || 0} file changes`,
         productSpec: JSON.stringify(productOutput),
-        architectPlan: JSON.stringify(architectOutput),
-        projectName: input.projectName,
-      }, input.env)
+        architecturePlan: JSON.stringify(architectOutput),
+      })
 
-      if (!reviewResult.success || !reviewResult.output) {
-        throw new Error(reviewResult.error || 'Reviewer agent returned no output')
+      if (!reviewResult.output) {
+        throw new Error('Reviewer agent returned no output')
       }
       reviewerOutput = reviewResult.output
       completeStep(reviewStep, reviewerOutput, reviewResult.markdown, reviewResult.model)
@@ -583,30 +581,31 @@ export async function runAgentPipeline(
     startStep(memoryStep)
     try {
       const memResult: MemoryAgentResult = await runMemoryAgent({
-        runId,
-        projectId: input.projectId,
         projectName: input.projectName,
-        repoName: input.repoName,
-        request: { title: input.title, description: input.description },
-        patches: codeOutput?.patches?.map((p: any) => ({
+        taskTitle: input.title,
+        runOutcome: testOutput?.overallStatus === 'passed' ? 'success' : testOutput?.overallStatus === 'partial' ? 'partial_success' : 'failure',
+        patchesApplied: codeOutput?.patches?.map((p: any) => ({
           filePath: p.filePath,
           operation: p.operation,
+          reasoning: p.reasoning || '',
         })) || [],
-        errors: testOutput?.categories
+        errorsEncountered: testOutput?.categories
           ?.filter((c: any) => c.status === 'failed')
           ?.flatMap((c: any) => c.errors.map((e: any) => ({
             step: c.step,
             message: e.message,
+            category: c.step,
+            wasFixed: fixResult ? fixResult.confidence >= 0.6 : false,
             resolved: fixResult ? fixResult.confidence >= 0.6 : false,
           }))) || [],
         healingResults: fixResult ? [{
           strategy: 'fix_agent',
-          success: fixResult.success,
+          success: fixResult.confidence >= 0.6,
           description: fixResult.markdown || '',
         }] : [],
         verdict: reviewerOutput?.decision || 'pending',
         outcome: testOutput?.overallStatus === 'passed' ? 'success' : 'partial',
-      }, input.env)
+      })
 
       if (memResult.output) {
         memoryOutput = memResult.output
