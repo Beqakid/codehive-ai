@@ -29,9 +29,9 @@ import { runMemoryAgent } from '../agents/memoryAgent'
 import type { MemoryAgentResult, MemoryAgentOutput } from '../agents/memoryAgent'
 import { computeVerdict } from './agentVerdict'
 import type { AgentVerdict } from './agentVerdict'
-import { retrieveMemories, buildMemoryContext } from './memoryRetrieval'
-import { saveMemoryEntries } from './memoryStore'
-import type { MemoryEntry } from './memoryStore'
+import { retrieveMemories, formatMemoriesForPrompt } from './memoryRetrieval'
+import { saveMemories } from './memoryStore'
+import type { MemoryEntry, SaveMemoryInput } from './memoryStore'
 import { evaluateHealingPolicy } from './healingPolicy'
 import { fingerprintFailure } from './failureFingerprint'
 import { resolveModel } from './modelRouter'
@@ -192,10 +192,9 @@ export async function runAgentPipeline(
       const memories = await retrieveMemories(payload, {
         projectId: input.projectId,
         repoName: input.repoName,
-        query: `${input.title} ${input.description}`,
         limit: 20,
       })
-      memoryContext = buildMemoryContext(memories)
+      memoryContext = formatMemoriesForPrompt(memories)
     } catch (e) {
       console.error('[M5] Memory retrieval failed (non-fatal):', e)
       memoryContext = '(No prior memory available)'
@@ -209,12 +208,11 @@ export async function runAgentPipeline(
         title: input.title,
         description: input.description,
         projectName: input.projectName,
-        repoContext: `${input.repoOwner}/${input.repoName}`,
         memoryContext,
-      }, input.env)
+      })
 
-      if (!productResult.success || !productResult.output) {
-        throw new Error(productResult.error || 'Product agent returned no output')
+      if (!productResult.output) {
+        throw new Error('Product agent returned no output')
       }
       productOutput = productResult.output
       completeStep(productStep, productOutput, productResult.markdown, productResult.model)
@@ -252,16 +250,14 @@ export async function runAgentPipeline(
       }
 
       const repoResult: RepoIntelligenceResult = await runRepoIntelligenceAgent({
-        repoOwner: input.repoOwner,
-        repoName: input.repoName,
-        fileList: repoFiles,
-        dependencies,
-        protectedFiles,
         projectName: input.projectName,
-      }, input.env)
+        fileList: repoFiles,
+        protectedFiles,
+        taskDescription: `\${input.title}: \${input.description}`,
+      })
 
-      if (!repoResult.success || !repoResult.output) {
-        throw new Error(repoResult.error || 'Repo intelligence agent returned no output')
+      if (!repoResult.output) {
+        throw new Error('Repo intelligence agent returned no output')
       }
       repoIntelOutput = repoResult.output
       completeStep(repoStep, repoIntelOutput, repoResult.markdown, repoResult.model)
@@ -277,14 +273,15 @@ export async function runAgentPipeline(
     startStep(archStep)
     try {
       const archResult: ArchitectAgentResult = await runArchitectAgent({
+        title: input.title,
+        projectName: input.projectName,
         productSpec: JSON.stringify(productOutput),
         repoIntelligence: JSON.stringify(repoIntelOutput),
         memoryContext,
-        projectName: input.projectName,
-      }, input.env)
+      })
 
-      if (!archResult.success || !archResult.output) {
-        throw new Error(archResult.error || 'Architect agent returned no output')
+      if (!archResult.output) {
+        throw new Error('Architect agent returned no output')
       }
       architectOutput = archResult.output
       completeStep(archStep, architectOutput, archResult.markdown, archResult.model)
@@ -361,25 +358,24 @@ export async function runAgentPipeline(
     startStep(codeStep)
     try {
       const codeResult: CodeAgentResult = await runCodeAgent({
+        title: input.title,
+        projectName: input.projectName,
         architectPlan: JSON.stringify(architectOutput),
         productSpec: JSON.stringify(productOutput),
+        repoIntelligence: JSON.stringify(repoIntelOutput),
         scopeRules: {
           allowedPaths: [
             ...(architectOutput?.filesToCreate || []),
             ...(architectOutput?.filesToModify || []),
           ],
           blockedPaths: repoIntelOutput?.protectedAreas || [],
-          maxFiles: 30,
-          allowNewFiles: true,
-          allowDeleteFiles: false,
+          maxNewFiles: 30,
         },
-        existingFiles: {},
-        projectName: input.projectName,
-        repoContext: `${input.repoOwner}/${input.repoName}`,
-      }, input.env)
+        existingFiles: [],
+      })
 
-      if (!codeResult.success || !codeResult.output) {
-        throw new Error(codeResult.error || 'Code agent returned no output')
+      if (!codeResult.output) {
+        throw new Error('Code agent returned no output')
       }
       codeOutput = codeResult.output
       completeStep(codeStep, codeOutput, codeResult.markdown, codeResult.model)
@@ -450,18 +446,18 @@ export async function runAgentPipeline(
     startStep(testStep)
     try {
       const testResult: TestAgentResult = await runTestAgent({
-        executionSteps: [
-          { name: 'install', exitCode: 0, stdout: 'Dependencies installed', stderr: '', durationMs: 5000 },
-          { name: 'lint', exitCode: 0, stdout: 'No lint errors', stderr: '', durationMs: 2000 },
-          { name: 'test', exitCode: 0, stdout: 'All tests passed', stderr: '', durationMs: 8000 },
-          { name: 'build', exitCode: 0, stdout: 'Build successful', stderr: '', durationMs: 10000 },
-        ],
-        patches: codeOutput?.patches || [],
         projectName: input.projectName,
-      }, input.env)
+        steps: [
+          { name: 'install', command: 'npm install', exitCode: 0, stdout: 'Dependencies installed', stderr: '', durationMs: 5000 },
+          { name: 'lint', command: 'npm run lint', exitCode: 0, stdout: 'No lint errors', stderr: '', durationMs: 2000 },
+          { name: 'test', command: 'npm test', exitCode: 0, stdout: 'All tests passed', stderr: '', durationMs: 8000 },
+          { name: 'build', command: 'npm run build', exitCode: 0, stdout: 'Build successful', stderr: '', durationMs: 10000 },
+        ],
+        patchesSummary: codeOutput?.patches?.map((p: any) => `\${p.operation}: \${p.filePath}`).join(', ') || '',
+      })
 
-      if (!testResult.success || !testResult.output) {
-        throw new Error(testResult.error || 'Test agent returned no output')
+      if (!testResult.output) {
+        throw new Error('Test agent returned no output')
       }
       testOutput = testResult.output
       completeStep(testStep, testOutput, testResult.markdown, testResult.model)
@@ -483,10 +479,10 @@ export async function runAgentPipeline(
           const fixMemories = await retrieveMemories(payload, {
             projectId: input.projectId,
             repoName: input.repoName,
-            memoryTypes: ['learned_fix'],
+            types: ['fix_pattern', 'learned_fix', 'successful_fix', 'error_fix'] as any,
             limit: 10,
           })
-          learnedFixes = fixMemories
+          learnedFixes = fixMemories.memories || []
         } catch { /* non-fatal */ }
 
         // Evaluate healing policy
@@ -507,14 +503,34 @@ export async function runAgentPipeline(
 
         if (healingDecision.allowed) {
           fixResult = await runFixAgent({
-            errorOutput: JSON.stringify(testOutput.categories.filter((c: any) => c.status === 'failed')),
-            patches: codeOutput?.patches || [],
             projectName: input.projectName,
-            healingDecision,
-            learnedFixes,
-          }, input.env)
+            branchName: input.branch || 'main',
+            failedCommand: testOutput.categories.find((c: any) => c.status === 'failed')?.step || 'unknown',
+            exitCode: 1,
+            errorCategory: testOutput.categories.find((c: any) => c.status === 'failed')?.step || 'unknown',
+            errorSummary: testOutput.categories
+              .filter((c: any) => c.status === 'failed')
+              .flatMap((c: any) => c.errors.map((e: any) => e.message))
+              .join('\n'),
+            rawLogs: JSON.stringify(testOutput.categories.filter((c: any) => c.status === 'failed')),
+            repoFiles: codeOutput?.patches?.map((p: any) => ({ path: p.filePath, content: p.content || '' })) || [],
+            learnedFixes: learnedFixes.map((f: any) => ({
+              errorCategory: f.memoryType || '',
+              errorPattern: f.content || '',
+              fixApplied: f.content || '',
+            })),
+            healingDecision: {
+              shouldHeal: healingDecision.allowed,
+              strategy: healingDecision.strategy || 'auto',
+              maxAttempts: healingDecision.maxAttempts || 3,
+              currentAttempt: 1,
+              escalate: false,
+              reason: healingDecision.reason,
+            },
+            previousAttempts: [],
+          })
 
-          completeStep(fixStep, fixResult, fixResult.markdown || '## Fix Agent\n\nAttempted repairs', fixResult.model)
+          completeStep(fixStep, fixResult, `## Fix Agent\n\n**Root Cause:** \${fixResult.rootCause}\n**Confidence:** \${(fixResult.confidence * 100).toFixed(0)}%\n**Files:** \${fixResult.filesToUpdate.length}`)
         } else {
           completeStep(fixStep, { skipped: true, reason: healingDecision.reason }, `## Fix Agent: Skipped\n\n${healingDecision.reason}`)
         }
@@ -534,6 +550,8 @@ export async function runAgentPipeline(
     startStep(reviewStep)
     try {
       const reviewResult: ReviewerAgentResult = await runReviewerAgent({
+        title: input.title,
+        projectName: input.projectName,
         patches: codeOutput?.patches?.map((p: any) => ({
           filePath: p.filePath,
           operation: p.operation,
@@ -543,12 +561,11 @@ export async function runAgentPipeline(
         testResults: JSON.stringify(testOutput),
         rollbackPlan: `git revert HEAD~1 # Reverts ${codeOutput?.patches?.length || 0} file changes`,
         productSpec: JSON.stringify(productOutput),
-        architectPlan: JSON.stringify(architectOutput),
-        projectName: input.projectName,
-      }, input.env)
+        architecturePlan: JSON.stringify(architectOutput),
+      })
 
-      if (!reviewResult.success || !reviewResult.output) {
-        throw new Error(reviewResult.error || 'Reviewer agent returned no output')
+      if (!reviewResult.output) {
+        throw new Error('Reviewer agent returned no output')
       }
       reviewerOutput = reviewResult.output
       completeStep(reviewStep, reviewerOutput, reviewResult.markdown, reviewResult.model)
@@ -564,46 +581,47 @@ export async function runAgentPipeline(
     startStep(memoryStep)
     try {
       const memResult: MemoryAgentResult = await runMemoryAgent({
-        runId,
-        projectId: input.projectId,
         projectName: input.projectName,
-        repoName: input.repoName,
-        request: { title: input.title, description: input.description },
-        patches: codeOutput?.patches?.map((p: any) => ({
+        taskTitle: input.title,
+        runOutcome: testOutput?.overallStatus === 'passed' ? 'success' : testOutput?.overallStatus === 'partial' ? 'partial_success' : 'failure',
+        patchesApplied: codeOutput?.patches?.map((p: any) => ({
           filePath: p.filePath,
           operation: p.operation,
+          reasoning: p.reasoning || '',
         })) || [],
-        errors: testOutput?.categories
+        errorsEncountered: testOutput?.categories
           ?.filter((c: any) => c.status === 'failed')
           ?.flatMap((c: any) => c.errors.map((e: any) => ({
             step: c.step,
             message: e.message,
-            resolved: fixResult?.success || false,
+            category: c.step,
+            wasFixed: fixResult ? fixResult.confidence >= 0.6 : false,
+            resolved: fixResult ? fixResult.confidence >= 0.6 : false,
           }))) || [],
         healingResults: fixResult ? [{
           strategy: 'fix_agent',
-          success: fixResult.success,
+          success: fixResult.confidence >= 0.6,
           description: fixResult.markdown || '',
         }] : [],
         verdict: reviewerOutput?.decision || 'pending',
         outcome: testOutput?.overallStatus === 'passed' ? 'success' : 'partial',
-      }, input.env)
+      })
 
-      if (memResult.success && memResult.output) {
+      if (memResult.output) {
         memoryOutput = memResult.output
 
         // Save extracted memories to D1
-        const memoryEntries: MemoryEntry[] = memResult.output.lessonsLearned.map((lesson: any) => ({
+        const memoryInputs: SaveMemoryInput[] = memResult.output.lessonsLearned.map((lesson: any) => ({
           projectId: input.projectId,
           repoName: input.repoName,
-          memoryType: lesson.type,
+          memoryType: lesson.type as any,
           content: lesson.content,
-          confidence: lesson.confidence,
+          confidence: typeof lesson.confidence === 'number' && lesson.confidence <= 1 ? Math.round(lesson.confidence * 100) : lesson.confidence || 50,
           sourceRunId: runId,
         }))
 
-        if (memoryEntries.length > 0) {
-          await saveMemoryEntries(payload, memoryEntries)
+        if (memoryInputs.length > 0) {
+          await saveMemories(payload, memoryInputs)
         }
       }
       completeStep(memoryStep, memoryOutput, memResult.markdown, memResult.model)
@@ -648,7 +666,7 @@ export async function runAgentPipeline(
       reviewerScore: reviewerOutput?.score || 0,
       riskLevel: (steps[3].output as any)?.riskLevel || 'medium',
       fixAttempted: fixStep.status === 'completed',
-      fixSucceeded: fixResult?.success || false,
+      fixSucceeded: fixResult ? fixResult.confidence >= 0.6 : false,
       protectedFilesViolated: false,
     })
 

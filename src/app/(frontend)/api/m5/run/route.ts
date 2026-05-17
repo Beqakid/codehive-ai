@@ -67,9 +67,12 @@ export async function POST(req: NextRequest) {
       title,
       description,
       branch: branch || 'main',
-      apiKeys,
-      payload,
-    })
+      env: {
+        ANTHROPIC_API_KEY: apiKeys.anthropic,
+        OPENAI_API_KEY: apiKeys.openai,
+        GITHUB_TOKEN: apiKeys.github,
+      },
+    }, payload)
 
     return NextResponse.json(result)
   } catch (err) {
