@@ -1,0 +1,55 @@
+import type { CollectionConfig } from 'payload'
+
+export const AsyncRunSteps: CollectionConfig = {
+  slug: 'async-run-steps',
+  admin: {
+    useAsTitle: 'stepName',
+    group: 'M6 — Async Orchestration',
+  },
+  fields: [
+    { name: 'runId', type: 'text', required: true, index: true },
+    {
+      name: 'stepName',
+      type: 'select',
+      required: true,
+      options: [
+        { label: 'Product', value: 'product' },
+        { label: 'Repo Intelligence', value: 'repo_intelligence' },
+        { label: 'Architect', value: 'architect' },
+        { label: 'Risk Gate', value: 'risk_gate' },
+        { label: 'Code', value: 'code' },
+        { label: 'Patch Validation', value: 'patch_validation' },
+        { label: 'Sandbox', value: 'sandbox' },
+        { label: 'Test', value: 'test' },
+        { label: 'Fix', value: 'fix' },
+        { label: 'Reviewer', value: 'reviewer' },
+        { label: 'Memory', value: 'memory' },
+        { label: 'PR Materialization', value: 'pr_materialization' },
+      ],
+    },
+    { name: 'stepIndex', type: 'number', required: true },
+    {
+      name: 'status',
+      type: 'select',
+      required: true,
+      defaultValue: 'pending',
+      options: [
+        { label: 'Pending', value: 'pending' },
+        { label: 'Ready', value: 'ready' },
+        { label: 'Running', value: 'running' },
+        { label: 'Completed', value: 'completed' },
+        { label: 'Failed', value: 'failed' },
+        { label: 'Skipped', value: 'skipped' },
+      ],
+    },
+    { name: 'model', type: 'text' },
+    { name: 'output', type: 'textarea' },
+    { name: 'markdown', type: 'textarea' },
+    { name: 'error', type: 'textarea' },
+    { name: 'startedAt', type: 'text' },
+    { name: 'completedAt', type: 'text' },
+    { name: 'durationMs', type: 'number', defaultValue: 0 },
+    { name: 'retryCount', type: 'number', defaultValue: 0 },
+    { name: 'maxRetries', type: 'number', defaultValue: 3 },
+  ],
+}

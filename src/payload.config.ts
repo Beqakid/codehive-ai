@@ -41,6 +41,9 @@ import { ProjectRules } from './collections/ProjectRules'
 import { LearnedFixes } from './collections/LearnedFixes'
 import { FailurePatterns } from './collections/FailurePatterns'
 import { AgentVerdicts } from './collections/AgentVerdicts'
+import { AsyncRuns } from './collections/AsyncRuns'
+import { AsyncRunSteps } from './collections/AsyncRunSteps'
+import { RunEvents } from './collections/RunEvents'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -115,6 +118,9 @@ export default buildConfig({
     LearnedFixes,       // ← Milestone 5 addition
     FailurePatterns,    // ← Milestone 5 addition
     AgentVerdicts,      // ← Milestone 5 addition
+    AsyncRuns,          // ← Milestone 6 addition
+    AsyncRunSteps,      // ← Milestone 6 addition
+    RunEvents,          // ← Milestone 6 addition
   ],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
